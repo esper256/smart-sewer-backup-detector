@@ -1,15 +1,11 @@
 // Particle Photon 2 — sewer backup detector
-// Device OS 5.3+. Edit config_and_secrets.h. HTTP: add HttpClient.
-// MQTT (optional): add the MQTT library (hirotakaster).
-//
-// This is C++ (Particle Device OS / Wiring). A .c extension would compile as C.
+// Device OS 5.3+. Edit config_and_secrets.h. Add the HttpClient library
+// (or the MQTT library if you switch transport).
 //
 // Wiring: reed between D2 and GND (INPUT_PULLUP). Debug LED on D7.
 // Dry pipe (float down, reed closed) => D2 LOW.
 // Backup (float up, reed open)       => D2 HIGH.
 // A cut wire reads the same as a backup.
-//
-// The Photon reports reed state on the LAN. Home Assistant sends the alerts.
 
 #include "Particle.h"
 #include "config_and_secrets.h"
@@ -166,7 +162,6 @@ void setup() {
     pinMode(REED_PIN, INPUT_PULLUP);
 
 #ifdef SEWER_TRANSPORT_HTTP
-    // Stock HttpClient always uses hostname; a dotted-quad here is the working path.
     httpRequest.hostname = HA_HOST;
     httpRequest.port = HA_PORT;
     httpRequest.path = HA_WEBHOOK_PATH;

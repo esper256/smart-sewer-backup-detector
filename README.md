@@ -67,7 +67,7 @@ Tools: drill and a bit matching the float gland, wire strippers, soldering iron,
 
 5. Edit [`firmware/config_and_secrets.h`](firmware/config_and_secrets.h). The default is HTTP: set `HA_HOST` and `HA_WEBHOOK_PATH`.
 6. Install [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) as a package. Put the webhook id in `HA_WEBHOOK_PATH` (`/api/webhook/<id>`). Keep the webhook local-only. Replace `notify.notify` with your phone notify service. If you would rather use MQTT, see Firmware below and [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml).
-7. Flash Device OS 5.3 or later. Particle Workbench can compile the `.cpp` file as-is. In Particle Web IDE, create an app and paste the `.cpp` into the main sketch (the Web IDE’s default extension is `.ino`; the language is still C++). Add `config_and_secrets.h` to the project and the **HttpClient** library. Flash OTA. Particle Cloud is used for OTA. Reed state stays on the LAN.
+7. Flash Device OS 5.3 or later. Add the firmware and `config_and_secrets.h` in Particle Web IDE or Workbench, add the **HttpClient** library, and flash OTA. Particle Cloud is used for OTA. Reed state stays on the LAN.
 8. Join the float leads with WAGO 221 connectors or a weatherproof disconnect so you can unplug and unscrew the cap. WAGOs are fine under a roof overhang. They are not rated as an outdoor weatherproof connector.
 9. Test by lifting the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on and the backup notification should fire. Unplug the Photon; within a few minutes the silent-detector notification should fire. Periodic reports do not prove the float still moves. Lift it occasionally.
 
@@ -83,11 +83,9 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 [`firmware/sewer-backup-detector.cpp`](firmware/sewer-backup-detector.cpp) and [`firmware/config_and_secrets.h`](firmware/config_and_secrets.h).
 
-The source is C++. Particle’s Web IDE still names the sketch `.ino`; that is Arduino-style packaging, not a different language. A `.c` file would be compiled as C and would not build this code.
-
 The Photon reports `OPEN` or `CLOSED` 2 s after the reed opens, immediately on close, and every 60 s either way. The 2 s delay is reed debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s.
 
-**HTTP** (default): POST `{"reed":"OPEN"}` or `{"reed":"CLOSED"}` to `/api/webhook/<id>` on Home Assistant port 8123. Set `request.timeout`. Stock HttpClient uses the hostname field even for an IP address; put a dotted-quad in `HA_HOST`. There is no last-will; Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
+**HTTP** (default): POST `{"reed":"OPEN"}` or `{"reed":"CLOSED"}` to `/api/webhook/<id>` on Home Assistant port 8123. Put a dotted-quad in `HA_HOST`. Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
 
 ```cpp
 #define SEWER_TRANSPORT_HTTP
