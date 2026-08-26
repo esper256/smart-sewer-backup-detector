@@ -56,50 +56,50 @@ static bool body_is(const Host::HttpPost& post, const char* state) {
     return post.body == expected;
 }
 
-static void test_boot_posts_ok() {
+static void test_boot_posts_off() {
     boot_dry();
     REQUIRE(Host::posts.size() == 1);
-    REQUIRE(body_is(last_post(), "OK"));
+    REQUIRE(body_is(last_post(), "OFF"));
     REQUIRE(last_post().port == 8123);
     REQUIRE(last_post().path == "/api/webhook/replacemewithyourwebhookid");
-    REQUIRE(cloud_count("sewer-alarm") == 1);
-    REQUIRE(last_cloud_is("sewer-alarm", "OK"));
+    REQUIRE(cloud_count("sewer-state") == 1);
+    REQUIRE(last_cloud_is("sewer-state", "OFF"));
     REQUIRE(cloud_count("sewer-ha") == 0);
-    std::puts("ok  boot posts OK");
+    std::puts("ok  boot posts OFF");
 }
 
-static void test_short_open_does_not_alarm() {
+static void test_short_open_stays_dry() {
     boot_dry();
     Host::pin[D2] = HIGH;
     spin(1500);
     REQUIRE(Host::posts.size() == 1);
-    REQUIRE(body_is(last_post(), "OK"));
-    REQUIRE(cloud_count("sewer-alarm") == 1);
-    std::puts("ok  open < 2s stays OK");
+    REQUIRE(body_is(last_post(), "OFF"));
+    REQUIRE(cloud_count("sewer-state") == 1);
+    std::puts("ok  open < 2s stays OFF");
 }
 
-static void test_open_debounce_then_clear() {
+static void test_open_debounce_then_dry() {
     boot_dry();
     Host::pin[D2] = HIGH;
     spin(2100);
     REQUIRE(Host::posts.size() == 2);
-    REQUIRE(body_is(last_post(), "ALARM"));
+    REQUIRE(body_is(last_post(), "ON"));
 
     Host::pin[D2] = LOW;
     loop();
     REQUIRE(Host::posts.size() == 3);
-    REQUIRE(body_is(last_post(), "OK"));
-    REQUIRE(cloud_count("sewer-alarm") == 3);
-    REQUIRE(last_cloud_is("sewer-alarm", "OK"));
-    std::puts("ok  2s open posts ALARM, close posts OK");
+    REQUIRE(body_is(last_post(), "OFF"));
+    REQUIRE(cloud_count("sewer-state") == 3);
+    REQUIRE(last_cloud_is("sewer-state", "OFF"));
+    std::puts("ok  2s open posts ON, close posts OFF");
 }
 
 static void test_heartbeat() {
     boot_dry();
     spin(60000);
     REQUIRE(Host::posts.size() == 2);
-    REQUIRE(body_is(last_post(), "OK"));
-    REQUIRE(cloud_count("sewer-alarm") == 1);
+    REQUIRE(body_is(last_post(), "OFF"));
+    REQUIRE(cloud_count("sewer-state") == 1);
     REQUIRE(cloud_count("sewer-ha") == 0);
     std::puts("ok  60s heartbeat");
 }
@@ -113,6 +113,9 @@ static void test_http_retry() {
     REQUIRE(Host::posts.size() == 1);
     REQUIRE(cloud_count("sewer-ha") == 1);
     REQUIRE(last_cloud_is("sewer-ha", "HTTP 500"));
+    REQUIRE(Host::cloud.size() >= 2);
+    REQUIRE(Host::cloud[0].event == "sewer-ha");
+    REQUIRE(Host::cloud[1].event == "sewer-state");
 
     spin(4000);
     REQUIRE(Host::posts.size() == 1);
@@ -121,8 +124,8 @@ static void test_http_retry() {
     Host::http_status = 200;
     spin(2000);
     REQUIRE(Host::posts.size() == 2);
-    REQUIRE(body_is(last_post(), "OK"));
-    REQUIRE(cloud_count("sewer-alarm") == 1);
+    REQUIRE(body_is(last_post(), "OFF"));
+    REQUIRE(cloud_count("sewer-state") == 1);
     REQUIRE(cloud_count("sewer-ha") == 2);
     REQUIRE(last_cloud_is("sewer-ha", "ok"));
     std::puts("ok  failed POST retries after 5s");
@@ -139,16 +142,16 @@ static void test_wifi_down() {
     Host::wifi_ready = true;
     spin(5100);
     REQUIRE(Host::posts.size() == 1);
-    REQUIRE(body_is(last_post(), "OK"));
-    REQUIRE(cloud_count("sewer-alarm") == 1);
+    REQUIRE(body_is(last_post(), "OFF"));
+    REQUIRE(cloud_count("sewer-state") == 1);
     REQUIRE(cloud_count("sewer-ha") == 0);
     std::puts("ok  no POST until Wi-Fi is ready");
 }
 
 int main() {
-    test_boot_posts_ok();
-    test_short_open_does_not_alarm();
-    test_open_debounce_then_clear();
+    test_boot_posts_off();
+    test_short_open_stays_dry();
+    test_open_debounce_then_dry();
     test_heartbeat();
     test_http_retry();
     test_wifi_down();

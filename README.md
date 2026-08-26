@@ -85,11 +85,11 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant packages and compiles the sketch on the host against the small fakes in `test/fakes/`. That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
 
-The Photon reports `ALARM` or `OK` 2 s after the contact opens, immediately when it closes, and every 60 s either way. Open circuit is alarm (float up or a cut wire). Closed circuit is OK. The 2 s delay is debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s.
+The Photon reports `ON` (wet) or `OFF` (dry) 2 s after the contact opens, immediately when it closes, and every 60 s either way. That is a Home Assistant moisture binary_sensor: `on` is wet, `off` is dry. The UI shows Wet/Dry. Open circuit is wet (float up or a cut wire). Automations decide whether wet is an alarm. The 2 s delay is debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s. Home Assistant is notified first; Particle Cloud gets the same state afterward.
 
-Particle Console already shows whether the Photon is online. Firmware also publishes `sewer-alarm` (`ALARM`/`OK`) on state change, and `sewer-ha` if the Home Assistant send fails or later recovers. The 60 s heartbeat stays on the LAN. USB serial (`particle serial monitor`) has the same change events plus debounce; it does not print a line every minute.
+Particle Console already shows whether the Photon is online. Firmware also publishes `sewer-state` (`ON`/`OFF`) on change, and `sewer-ha` if the Home Assistant send fails or later recovers. The 60 s heartbeat stays on the LAN. USB serial (`particle serial monitor`) has the same change events plus debounce; it does not print a line every minute.
 
-**HTTP** (default): POST `{"state":"ALARM"}` or `{"state":"OK"}` to `/api/webhook/<id>` on Home Assistant port 8123. Put a dotted-quad in `HA_HOST`. Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
+**HTTP** (default): POST `{"state":"ON"}` or `{"state":"OFF"}` to `/api/webhook/<id>` on Home Assistant port 8123. Put a dotted-quad in `HA_HOST`. Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
 
 ```cpp
 #define SEWER_TRANSPORT_HTTP
@@ -102,7 +102,7 @@ const char* HA_WEBHOOK_PATH = "/api/webhook/replacemewithyourwebhookid";
 
 | Topic | Payload | When |
 |---|---|---|
-| `sewer/state` (retain) | `ALARM` / `OK` | state change and every 60 s |
+| `sewer/state` (retain) | `ON` / `OFF` | state change and every 60 s |
 | `sewer/availability` (retain) | `online` | MQTT connect |
 | `sewer/availability` (LWT) | `offline` | Unclean disconnect |
 
@@ -114,9 +114,9 @@ LAN HTTP and MQTT are unencrypted. Do not send them across the internet.
 
 | Failure | What happens | What to do |
 |---|---|---|
-| Float jammed with debris | Stays `OK` | Inspect after every trip. Lift-test on a schedule. |
+| Float jammed with debris | Stays dry (`OFF`) | Inspect after every trip. Lift-test on a schedule. |
 | Float hanging into the lateral | Catches debris and can clog the line | Size the stem as in Build step 1. |
-| Cut sensor wire | Reports `ALARM` | Same signal as a real backup. Distinguishing the two needs a different circuit. |
+| Cut sensor wire | Reports wet (`ON`) | Same signal as a real backup. Distinguishing the two needs a different circuit. |
 | Power, Wi-Fi, or Photon down | No webhook for 5 min (HTTP) or MQTT last-will | Silent-detector alert. |
 | Home Assistant or phone notifications down | No remote alert | Recurring notification test, as in How it works. |
 | HTTP or MQTT call hangs | Loop stops | Hardware watchdog resets after 90 s. |

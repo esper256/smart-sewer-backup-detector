@@ -2,7 +2,9 @@
 // Device OS 5.3+. Edit config_and_secrets.h.
 //
 // Dry contact D2–GND, INPUT_PULLUP. Debug LED on D7.
-// Closed (dry) => LOW => OK. Open (backup or cut wire) => HIGH => ALARM.
+// Closed (dry) => LOW => OFF. Open (backup or cut wire) => HIGH => ON.
+// ON/OFF are Home Assistant binary_sensor payloads (device_class moisture:
+// on = wet, off = dry). Automations decide whether that is an alarm.
 
 #include "Particle.h"
 #include "config_and_secrets.h"
@@ -19,24 +21,24 @@ SerialLogHandler logHandler(LOG_LEVEL_INFO);
 
 const pin_t CONTACT_PIN = D2;
 const pin_t LED_PIN = D7;
-const unsigned long ALARM_DEBOUNCE_MS = 2000;
+const unsigned long WET_DEBOUNCE_MS = 2000;
 const unsigned long HEARTBEAT_MS = 60000;
 const unsigned long RETRY_MS = 5000;
 
-// contactOpenedAt is when the pin went open (0 = closed). alarm is the
-// latched result after ALARM_DEBOUNCE_MS. They disagree only during debounce.
-static bool alarm;
+// contactOpenedAt is when the pin went open (0 = closed). wet is the latched
+// moisture after WET_DEBOUNCE_MS. They disagree only during debounce.
+static bool wet;
 static unsigned long contactOpenedAt;
 
-static bool haSent;
-static bool haAlarm;
-static unsigned long haSentAt;
+static bool statePublishedToHomeAssistant;
+static bool lastWetPublishedToHomeAssistant;
+static unsigned long lastHomeAssistantPublishAt;
 static bool backingOff;
-static unsigned long backoffAt;
+static unsigned long backoffStartedAt;
 
-static bool particleHaDown;
-static bool particleHasAlarm;
-static bool particleAlarm;
+static bool haDownPublishedToParticleCloud;
+static bool statePublishedToParticleCloud;
+static bool lastWetPublishedToParticleCloud;
 
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
@@ -94,11 +96,11 @@ void connectToMqtt() {
     if (!WiFi.ready()) {
         return;
     }
-    if (backingOff && millis() - backoffAt < RETRY_MS) {
+    if (backingOff && millis() - backoffStartedAt < RETRY_MS) {
         return;
     }
     backingOff = true;
-    backoffAt = millis();
+    backoffStartedAt = millis();
 
     String clientId = String("sewer-") + System.deviceID();
     if (!mqtt.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD,
@@ -107,22 +109,22 @@ void connectToMqtt() {
         return;
     }
     mqtt.publish(TOPIC_AVAILABILITY, "online", true);
-    haSent = false;
+    statePublishedToHomeAssistant = false;
     backingOff = false;
     Log.info("mqtt connected");
 }
 #endif
 
-void updateAlarm(bool contactOpen) {
+void updateWet(bool contactOpen) {
     if (!contactOpen) {
         contactOpenedAt = 0;
-        if (alarm) {
-            alarm = false;
-            Log.info("OK");
+        if (wet) {
+            wet = false;
+            Log.info("dry");
         }
         return;
     }
-    if (alarm) {
+    if (wet) {
         return;
     }
     if (contactOpenedAt == 0) {
@@ -130,23 +132,23 @@ void updateAlarm(bool contactOpen) {
         Log.info("contact open");
         return;
     }
-    if (millis() - contactOpenedAt >= ALARM_DEBOUNCE_MS) {
-        alarm = true;
-        Log.info("ALARM");
+    if (millis() - contactOpenedAt >= WET_DEBOUNCE_MS) {
+        wet = true;
+        Log.info("wet");
     }
 }
 
 void setup() {
-    alarm = false;
+    wet = false;
     contactOpenedAt = 0;
-    haSent = false;
-    haAlarm = false;
-    haSentAt = 0;
+    statePublishedToHomeAssistant = false;
+    lastWetPublishedToHomeAssistant = false;
+    lastHomeAssistantPublishAt = 0;
     backingOff = false;
-    backoffAt = 0;
-    particleHaDown = false;
-    particleHasAlarm = false;
-    particleAlarm = false;
+    backoffStartedAt = 0;
+    haDownPublishedToParticleCloud = false;
+    statePublishedToParticleCloud = false;
+    lastWetPublishedToParticleCloud = false;
 
     pinMode(LED_PIN, OUTPUT);
     pinMode(CONTACT_PIN, INPUT_PULLUP);
@@ -175,43 +177,47 @@ void loop() {
 
     const bool contactOpen = digitalRead(CONTACT_PIN) == HIGH;
     digitalWrite(LED_PIN, (contactOpen && ((millis() / 100) % 2)) ? HIGH : LOW);
-    updateAlarm(contactOpen);
+    updateWet(contactOpen);
 
-    const char* state = alarm ? "ALARM" : "OK";
+    const char* state = wet ? "ON" : "OFF";
 
-    if (!particleHasAlarm || particleAlarm != alarm) {
-        if (sendToParticleCloud("sewer-alarm", state)) {
-            particleHasAlarm = true;
-            particleAlarm = alarm;
-        }
-    }
-
-    const bool haDue = !haSent || haAlarm != alarm ||
-        (haSent && millis() - haSentAt >= HEARTBEAT_MS);
-    if (haDue && (!backingOff || millis() - backoffAt >= RETRY_MS)) {
+    const bool haDue = !statePublishedToHomeAssistant ||
+        lastWetPublishedToHomeAssistant != wet ||
+        (statePublishedToHomeAssistant &&
+         millis() - lastHomeAssistantPublishAt >= HEARTBEAT_MS);
+    if (haDue && (!backingOff || millis() - backoffStartedAt >= RETRY_MS)) {
         if (sendToHomeAssistant(state)) {
-            if (particleHaDown) {
+            if (haDownPublishedToParticleCloud) {
                 sendToParticleCloud("sewer-ha", "ok");
-                particleHaDown = false;
+                haDownPublishedToParticleCloud = false;
             }
-            haSent = true;
-            haAlarm = alarm;
-            haSentAt = millis();
+            statePublishedToHomeAssistant = true;
+            lastWetPublishedToHomeAssistant = wet;
+            lastHomeAssistantPublishAt = millis();
             backingOff = false;
         } else {
             backingOff = true;
-            backoffAt = millis();
-            if (!particleHaDown) {
+            backoffStartedAt = millis();
+            if (!haDownPublishedToParticleCloud) {
 #ifdef SEWER_TRANSPORT_HTTP
                 if (WiFi.ready()) {
                     String err = String::format("HTTP %d", httpResponse.status);
-                    particleHaDown = sendToParticleCloud("sewer-ha", err.c_str());
+                    haDownPublishedToParticleCloud =
+                        sendToParticleCloud("sewer-ha", err.c_str());
                 }
 #endif
 #ifdef SEWER_TRANSPORT_MQTT
-                particleHaDown = sendToParticleCloud("sewer-ha", "mqtt");
+                haDownPublishedToParticleCloud =
+                    sendToParticleCloud("sewer-ha", "mqtt");
 #endif
             }
+        }
+    }
+
+    if (!statePublishedToParticleCloud || lastWetPublishedToParticleCloud != wet) {
+        if (sendToParticleCloud("sewer-state", state)) {
+            statePublishedToParticleCloud = true;
+            lastWetPublishedToParticleCloud = wet;
         }
     }
 

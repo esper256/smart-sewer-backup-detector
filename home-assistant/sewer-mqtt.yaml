@@ -12,8 +12,8 @@ mqtt:
     - name: Sewer cleanout float
       unique_id: sewer_cleanout_float
       state_topic: sewer/state
-      payload_on: ALARM
-      payload_off: OK
+      payload_on: ON
+      payload_off: OFF
       device_class: moisture
       expire_after: 180
       availability:
