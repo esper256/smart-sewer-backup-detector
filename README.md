@@ -1,6 +1,6 @@
-# SewerBackup Detector
+# Sewer Backup Detector
 
-This page is the build notes for a sewerBackup warning I installed at my house. The sewer lateral is long and has ongoing root problems, so an early warning is useful. Hardware is about $50–$75. Built July 2025.
+This page is the build notes for a sewer backup warning I installed at my house. The sewer lateral is long and has ongoing root problems, so an early warning is useful. Hardware is about $50–$75. Built July 2025.
 
 Firmware: [`firmware/src/sewer-backup-detector.cpp`](firmware/src/sewer-backup-detector.cpp).
 
@@ -10,7 +10,7 @@ Firmware: [`firmware/src/sewer-backup-detector.cpp`](firmware/src/sewer-backup-d
 
 When a sewer lateral clogs, wastewater fills the pipe from the low point upward. The house is still draining into that volume. A toilet that will not flush is a late signal: much of the piping may already be full. Opening the cleanout then releases a vertical column of wastewater next to the house. The column is taller in a multi-story house.
 
-A float in the cleanout can trip while the sewerBackup is still below the fixtures. How much time that gives you depends on the unused pipe volume between the float and the lowest fixture, and on how fast water is entering the sewer. This does not clear a clog.
+A float in the cleanout can trip while the sewer backup is still below the fixtures. How much time that gives you depends on the unused pipe volume between the float and the lowest fixture, and on how fast water is entering the sewer. This does not clear a clog.
 
 ## How it works
 
@@ -62,7 +62,7 @@ Tools: drill and bits for the float gland, the antenna bulkhead, and the box gla
 
 1. Measure the riser inside diameter and the depth from the underside of the cap to where the cleanout joins the lateral. The float hangs in that vertical pipe, as low as you can place it. It must not stick down into the lateral. In the running sewer it will catch paper and roots and can cause a clog. Order a stem that puts the whole float above that junction when the cap is tight.
 
-2. Solder female headers onto a 0.1" proto board so the Photon 2 plugs in and can come out again. Solder a 2-position screw terminal onto the same board, on traces that land on **D2** and **GND**. Debug LED on **D7** (soldered on this build) to GND, with a series resistor unless the LED is a module. Do not hold D7 low at reset; that puts a Photon 2 into test mode. D2 is `INPUT_PULLUP`: closed contact (clear) is LOW, open contact (sewerBackup, or a cut wire) is HIGH. There is no useful Arduino-shield carrier for a Photon 2 in a box this small; the proto board is the part.
+2. Solder female headers onto a 0.1" proto board so the Photon 2 plugs in and can come out again. Solder a 2-position screw terminal onto the same board, on traces that land on **D2** and **GND**. Debug LED on **D7** (soldered on this build) to GND, with a series resistor unless the LED is a module. Do not hold D7 low at reset; that puts a Photon 2 into test mode. D2 is `INPUT_PULLUP`: closed contact (clear) is LOW, open contact (sewer backup, or a cut wire) is HIGH. There is no useful Arduino-shield carrier for a Photon 2 in a box this small; the proto board is the part.
 
 3. Home Assistant. Nothing to copy into `/config`.
 
@@ -99,7 +99,7 @@ Tools: drill and bits for the float gland, the antenna bulkhead, and the box gla
    Suggested notify rules: Create automation → ⋮ → Edit in YAML, paste each of these as its own automation. Replace `notify.notify` with your phone (Developer tools → Actions, typically `notify.mobile_app_<name>`).
 
    ```yaml
-   alias: SewerBackup
+   alias: Sewer backup
    mode: single
    triggers:
      - trigger: state
@@ -108,7 +108,7 @@ Tools: drill and bits for the float gland, the antenna bulkhead, and the box gla
    actions:
      - action: notify.notify
        data:
-         title: SewerBackup
+         title: Sewer backup
          message: Float is up. Stop draining water.
    ```
 
@@ -128,7 +128,7 @@ Tools: drill and bits for the float gland, the antenna bulkhead, and the box gla
 
    MQTT instead: [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml) and Firmware below. [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) is only the helpers, and only if you already use packages.
 
-4. Flash Device OS 5.3 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. The sewerBackup state stays on the LAN. Do this on the bench with USB before the board goes in the box.
+4. Flash Device OS 5.3 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. Reports to Home Assistant stay on the LAN. Do this on the bench with USB before the board goes in the box.
 
 5. Put the proto board in the IP68 box. Drill for the antenna bulkhead, feed the U.FL pigtail through, and click it onto the Photon. Fit cable glands. Run 2-conductor from the screw terminal out one gland, and USB power through another gland into the Photon’s USB jack. Close the lid. Fitting the board, glands, and antenna in the small box was the slowest mechanical step.
 
@@ -138,7 +138,7 @@ Tools: drill and bits for the float gland, the antenna bulkhead, and the box gla
 
 7. Screw the finished cap onto the cleanout first. Then join the float leads to the cable from the box with WAGO 221 connectors (or a weatherproof disconnect). The wires must not tether the cap to the box; you have to unplug to unscrew and snake the line. WAGOs are fine under a roof overhang. They are not rated as an outdoor weatherproof connector.
 
-8. Power it. Lift the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on (Wet) and the SewerBackup notification should fire. Unplug the Photon; within a few minutes the silent-detector notification should fire. Periodic reports do not prove the float still moves. Lift it occasionally.
+8. Power it. Lift the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on (Wet) and the sewer backup notification should fire. Unplug the Photon; within a few minutes the silent-detector notification should fire. Periodic reports do not prove the float still moves. Lift it occasionally.
 
 ```
 USB 5V ── Photon 2 USB
@@ -154,7 +154,7 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant YAML and compiles the sketch on the host against the small fakes in `test/fakes/`. That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
 
-The Photon reports `ON` (sewerBackup) or `OFF` (clear) 2 s after the contact opens, immediately when it closes, and every 60 s either way. That is a Home Assistant moisture binary_sensor: `on` is Wet, `off` is Dry. Open circuit is a sewerBackup (float up or a cut wire). Automations decide whether a sewerBackup is an alarm. The 2 s delay is debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s. Home Assistant is notified first; Particle Cloud gets the same state afterward.
+The Photon reports `ON` (sewer backup) or `OFF` (clear) 2 s after the contact opens, immediately when it closes, and every 60 s either way. That is a Home Assistant moisture binary_sensor: `on` is Wet, `off` is Dry. Open circuit is a sewer backup (float up or a cut wire). Automations decide whether that is an alarm. The 2 s delay is debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s. Home Assistant is notified first; Particle Cloud gets the same state afterward.
 
 Particle Console already shows whether the Photon is online. Firmware also publishes `sewer-state` (`ON`/`OFF`) on change, and `sewer-ha` if the Home Assistant send fails or later recovers. The 60 s heartbeat stays on the LAN. USB serial (`particle serial monitor`) has the same change events plus debounce; it does not print a line every minute.
 
@@ -185,12 +185,10 @@ LAN HTTP and MQTT are unencrypted. Do not send them across the internet.
 |---|---|---|
 | Float jammed with debris | Stays clear (`OFF`) | Inspect after every trip. Lift-test on a schedule. |
 | Float hanging into the lateral | Catches debris and can clog the line | Size the stem as in Build step 1. |
-| Cut sensor wire | Reports sewerBackup (`ON`) | Same signal as a real sewerBackup. Distinguishing the two needs a different circuit. |
+| Cut sensor wire | Reports sewer backup (`ON`) | Same signal as a real backup. Distinguishing the two needs a different circuit. |
 | Power, Wi-Fi, or Photon down | No webhook for 5 min (HTTP) or MQTT last-will | Silent-detector alert. |
 | Home Assistant or phone notifications down | No remote alert | Recurring notification test, as in How it works. |
 | HTTP or MQTT call hangs | Loop stops | Hardware watchdog resets after 90 s. |
-
-Opening a sanitary sewer exposes you to pathogens and hydrogen sulfide. Keep the cap sealed. Follow local plumbing code.
 
 ## Later changes worth making
 
@@ -198,5 +196,21 @@ Opening a sanitary sewer exposes you to pathogens and hydrogen sulfide. Keep the
 - Supervised loop (two resistors) so an open wire, a raised float, and a short are three different states.
 - A local sounder that does not depend on Home Assistant.
 - MQTT over TLS, if you use MQTT and the broker is not on a trusted LAN.
+
+## Espressif instead of Particle
+
+The Photon 2 is Particle hardware: Realtek radio, Device OS, Particle Cloud. The usual Home Assistant substitute is an ESP32, often an ESP32-C3, running ESPHome or Arduino-ESP32. The float, the cap, the box, and the WAGOs do not change.
+
+ESPHome is the larger difference. Home Assistant would get a native moisture binary sensor. Debounce is `delayed_on`. OTA is from the HA UI. The webhook, the text helper, and this HTTP sketch go away. That is what ESPHome is for.
+
+Arduino-ESP32 would look like this repo: a C++ loop, a GPIO pull-up, an HTTP POST to a webhook. `sendToHomeAssistant` would be rewritten against `WiFiClient`. Watchdog and reconnect are still yours.
+
+An ESP32-C3 board is a few dollars. The Photon 2 is about $18. The rest of the bill of materials does not care. Many ESP32 modules have USB-UART on the board; you still want female headers or a socket if the box is going to be opened again.
+
+Particle Cloud OTA is the Photon reason. The box can sit at the cleanout and take firmware from anywhere the Photon can reach Particle, without putting a programmer on USB and without opening Home Assistant to the internet. ESPHome OTA is on the LAN, or through whatever remote access you already use for Home Assistant. Particle Console shows whether the device is online; ESPHome uses Home Assistant availability for the same fact.
+
+A Photon 2 enters test mode if D7 is held low at reset. ESP32 modules have their own strapping pins. Read the datasheet either way.
+
+If the point is a Home Assistant sensor and Particle is not already in the shop, ESPHome on an ESP32 is the smaller HA project. This build used a Photon 2 because Particle was already there, and Cloud OTA reaches a box you do not want to open.
 
 License: MIT. This is an early warning, not a life-safety system.

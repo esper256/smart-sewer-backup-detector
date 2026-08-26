@@ -1,10 +1,10 @@
-// Particle Photon 2 — sewerBackup detector
+// Particle Photon 2 — sewer backup detector
 // Device OS 5.3+. Edit config_and_secrets.h.
 //
 // Dry contact D2–GND, INPUT_PULLUP. Debug LED on D7.
-// Closed (clear) => LOW => OFF. Open (sewerBackup or cut wire) => HIGH => ON.
+// Closed (clear) => LOW => OFF. Open (sewer backup or cut wire) => HIGH => ON.
 // ON/OFF are Home Assistant moisture binary_sensor payloads (on = Wet).
-// Automations decide whether a sewerBackup is an alarm.
+// Automations decide whether a sewer backup is an alarm.
 
 #include "Particle.h"
 #include "config_and_secrets.h"

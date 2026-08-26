@@ -22,8 +22,8 @@ mqtt:
           payload_not_available: offline
 
 automation:
-  - id: sewerBackup
-    alias: SewerBackup
+  - id: sewer_backup
+    alias: Sewer backup
     mode: single
     triggers:
       - trigger: state
@@ -32,7 +32,7 @@ automation:
     actions:
       - action: notify.notify
         data:
-          title: SewerBackup
+          title: Sewer backup
           message: Float is up. Stop draining water.
 
   - id: sewer_detector_silent
