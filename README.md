@@ -197,25 +197,16 @@ LAN HTTP and MQTT are unencrypted. Do not send them across the internet.
 - A local sounder that does not depend on Home Assistant.
 - MQTT over TLS, if you use MQTT and the broker is not on a trusted LAN.
 
-## Espressif instead of Particle
+## If you used an ESP32 instead
 
-This build is a Photon 2 because that is what was in the shop. For a new Home Assistant tinkerer who is not deploying a fleet, an ESP32 running ESPHome is the smaller project. Particle's web IDE is a fleet console. It is not aimed at one box in a garage.
+I used a Photon 2. The cap, the float, the box, and the WAGOs at the cap do not care which board is inside.
 
-The float, cap, box, glands, paddle antenna, and cap WAGOs are the same either way. The board choice is USB power, two float wires (GPIO and GND, internal pull-up), and whether you need U.FL for that paddle.
+With a Photon 2 you solder a proto board: female headers so the module unplugs, a two-position screw terminal for the float on D2 and GND, and a debug LED if you want one. The Photon has no place to clamp a wire. Then Home Assistant: helpers, a webhook, two notification automations, and this firmware. You need a Particle account. You flash from Workbench or from Particle's website. Later firmware arrives over Wi-Fi through Particle, including when you are not home, if the Photon can still reach their servers. Particle's website is for people who have many devices in the field. For one sensor it is another account and another cloud.
 
-| | Photon 2 (this build) | ESP32 DevKit (typical C3) | ESP32 with screw terminals |
-|---|---|---|---|
-| Board | $18. 0.1" pins, U.FL, USB. | $3–8. Headers and USB-C already on the board. Many have only a PCB antenna. | $10–25. GPIO on terminals. Confirm U.FL if the cleanout needs the paddle. |
-| Landing the float pair | Proto board, female headers, 2-pos screw terminal to D2/GND. Required: the module has nowhere to clamp a wire. | Still two wires. WAGO 221 onto Dupont jumpers (already on the parts list for the cap), or a $1 2-pos terminal on a scrap of proto. Do not solder the gland cable to the DevKit. | Skip the proto board if a GPIO and GND are on the terminals. |
-| Debug LED | Soldered to D7 on this build. | On the DevKit already. | Usually on the board. |
-| First flash | USB, or Particle Cloud if it is already on Wi-Fi. | USB. | USB. |
-| Later firmware over Wi-Fi | Particle Cloud. The Photon calls Particle; you push from Workbench or the Particle site. Works off-LAN. Needs a Particle account, and Particle's cloud has to be up. | ESPHome OTA from the Home Assistant UI, on the LAN. Off-LAN only through whatever you already use to reach HA (Nabu Casa, VPN, Tailscale). Arduino-ESP32 can do the same with ArduinoOTA. | Same as DevKit. |
-| Home Assistant | HTTP webhook and helpers, this repo. | ESPHome: native moisture binary sensor, `delayed_on` for the 2 s debounce, no webhook. | Same as DevKit. |
+With an ESP32 you buy a USB board for a few dollars. USB and pin headers are already on it. The two float wires still have to land somewhere: a WAGO onto jumper wires, or a small screw terminal. That is not the proto board above. A more expensive ESP32 with screw terminals on the PCB is only worth the extra money if it also fits the box and has a U.FL socket for an external antenna. This cleanout needed a paddle antenna. The Photon has U.FL. Many cheap ESP32 boards do not; the antenna is printed on the board. If Wi-Fi is weak where the box will sit, get U.FL and use the same bulkhead antenna.
 
-The Photon proto-board work is real because a headered module has no screw terminals. An ESP32 DevKit does not recreate that job. Clamping two wires is a WAGO or a two-position terminal, not twenty minutes of pin headers. A pricier terminal-block ESP32 is worth it if it also has U.FL and 5 V USB in a shape that fits the box. It is not worth it only to avoid the terminal.
+You do not use this firmware. ESPHome in Home Assistant flashes the ESP32 once over USB. You tell it which pin the float is on. HA shows a moisture sensor. You still want the two notifications: float is up, or the box went quiet. Later firmware updates are over Wi-Fi from Home Assistant. From outside the house that only works if you can already open Home Assistant from outside.
 
-Wi-Fi OTA exists on both. Photon OTA is Particle's network. ESPHome OTA is yours. After the first USB flash you should not need a cable at the cleanout.
-
-If Home Assistant is the point and you do not already live in Particle, use ESP32 + ESPHome. If you already flash Photons and want Cloud OTA without thinking about how you remote into HA, this repo is the Photon version.
+If I did not already have Particle, I would use an ESP32.
 
 License: MIT. This is an early warning, not a life-safety system.
