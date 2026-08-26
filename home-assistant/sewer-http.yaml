@@ -6,8 +6,9 @@
 #       sewer: !include sewer-http.yaml
 #
 # Put the webhook id in firmware/src/config_and_secrets.h as HA_WEBHOOK_PATH
-# (/api/webhook/<id>). Keep local_only. Replace notify.notify with your
-# phone notify service.
+# (/api/webhook/<id>). Same string as webhook_id below. Keep local_only.
+# Replace notify.notify with your phone notify service (often
+# notify.mobile_app_<name>). Restart Home Assistant after adding the package.
 
 input_text:
   sewer_state:

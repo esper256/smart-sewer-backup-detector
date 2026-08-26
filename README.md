@@ -34,19 +34,21 @@ flowchart LR
 
 | Item | What I used | ≈ |
 |---|---|---:|
-| Photon 2 | Particle Photon 2 | $18 |
+| Photon 2 | Particle Photon 2, with male headers | $18 |
+| Proto board | 0.1" (2.54 mm) proto PCB; Photon 2 is not an Arduino Uno shield | $2–5 |
+| Socket | Female headers so the Photon unplugs from the proto board | $1–2 |
+| Terminal block | 2-position screw terminal on the proto board for the float pair | $1–2 |
 | Float | Stainless vertical magnetic reed float, stem sized to the cleanout (see Build) | $8–15 |
 | Cleanout cap | New 4" threaded PVC/ABS cap matching the existing cleanout, then modified | $5–15 |
 | Enclosure | Helunsi IP68 junction box, Amazon `B07TGHYQF4` | $5–10 |
 | Antenna | Dual-band paddle + U.FL pigtail, Amazon `B07R21LN5P` | $5–10 |
 | Connectors | WAGO 221 at the cap so the cap still unscrews | $1–3 |
-| Headers / terminals | Soldered onto the Photon or a small proto board | $2–5 |
 | Debug LED | On D7 (soldered on this build) | <$1 |
-| Wire | 2-conductor from float to box | <$2 |
+| Wire | 2-conductor from the box gland to the WAGOs | <$2 |
 | Power | USB 5 V wall wart into the Photon’s USB jack | $5–10 |
 | **Total** | | **$50–$75** |
 
-Tools: drill and a bit matching the float gland, wire strippers, soldering iron, screwdriver. No custom PCB or 3D printing.
+Tools: drill and bits for the float gland, the antenna bulkhead, and the box glands; wire strippers; soldering iron; screwdriver. No custom PCB or 3D printing.
 
 ## What you need already
 
@@ -59,17 +61,30 @@ Tools: drill and a bit matching the float gland, wire strippers, soldering iron,
 ## Build
 
 1. Measure the riser inside diameter and the depth from the underside of the cap to where the cleanout joins the lateral. The float hangs in that vertical pipe, as low as you can place it. It must not stick down into the lateral. In the running sewer it will catch paper and roots and can cause a clog. Order a stem that puts the whole float above that junction when the cap is tight.
-2. Drill the new cap on center. Mount the float with its gaskets so the cap still seals. Check that the float slides freely.
-3. Wire the sensor **D2–GND**. D2 is `INPUT_PULLUP`. Closed contact (dry) reads LOW. Open contact (float up, or a cut wire) reads HIGH. Firmware treats open as alarm. Debug LED on **D7** (soldered on this build). Do not hold D7 low at reset; that puts a Photon 2 into test mode.
-4. Put the Photon in the IP68 box. USB power through a gland. Use the U.FL pigtail and an external antenna if the internal antenna is weak at the cleanout. Fitting the board, glands, and antenna in the small box was the slowest mechanical step.
+
+2. Solder female headers onto a 0.1" proto board so the Photon 2 plugs in and can come out again. Solder a 2-position screw terminal onto the same board, on traces that land on **D2** and **GND**. Debug LED on **D7** (soldered on this build) to GND, with a series resistor unless the LED is a module. Do not hold D7 low at reset; that puts a Photon 2 into test mode. D2 is `INPUT_PULLUP`: closed contact (clear) is LOW, open contact (backup, or a cut wire) is HIGH. There is no useful Arduino-shield carrier for a Photon 2 in a box this small; the proto board is the part.
+
+3. Copy [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) into the Home Assistant config directory, the same folder as `configuration.yaml`. That folder is `/config` on Home Assistant OS (File editor, Samba, or Studio Code Server). Under the existing `homeassistant:` key (add the key if it is missing), enable packages:
+
+   ```yaml
+   homeassistant:
+     packages:
+       sewer: !include sewer-http.yaml
+   ```
+
+   If `packages:` is already there, add only the `sewer:` line. Pick a long unguessable webhook id. Put it in the yaml as `webhook_id`, and in [`firmware/src/config_and_secrets.h`](firmware/src/config_and_secrets.h) as `HA_WEBHOOK_PATH` (`/api/webhook/<that-id>`). Set `HA_HOST` to the Home Assistant dotted-quad. Keep `local_only`. Replace `notify.notify` with your phone: Developer tools → Actions, search `notify`, typically `notify.mobile_app_<name>`. Restart Home Assistant. You should see automations named Sewer backup and Sewer detector silent. MQTT instead: [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml) and Firmware below.
+
+4. Flash Device OS 5.3 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. Backup state stays on the LAN. Do this on the bench with USB before the board goes in the box.
+
+5. Put the proto board in the IP68 box. Drill for the antenna bulkhead, feed the U.FL pigtail through, and click it onto the Photon. Fit cable glands. Run 2-conductor from the screw terminal out one gland, and USB power through another gland into the Photon’s USB jack. Close the lid. Fitting the board, glands, and antenna in the small box was the slowest mechanical step.
 
    ![Photon 2 in the IP68 box with U.FL pigtail and sensor wires](images/finished_electronics_box_closeup.jpg)
 
-5. Edit [`firmware/src/config_and_secrets.h`](firmware/src/config_and_secrets.h). The default is HTTP: set `HA_HOST` and `HA_WEBHOOK_PATH`.
-6. Install [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) as a package. Put the webhook id in `HA_WEBHOOK_PATH` (`/api/webhook/<id>`). Keep the webhook local-only. Replace `notify.notify` with your phone notify service. If you would rather use MQTT, see Firmware below and [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml).
-7. Flash Device OS 5.3 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. Alarm state stays on the LAN.
-8. Join the float leads with WAGO 221 connectors or a weatherproof disconnect so you can unplug and unscrew the cap. WAGOs are fine under a roof overhang. They are not rated as an outdoor weatherproof connector.
-9. Test by lifting the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on and the backup notification should fire. Unplug the Photon; within a few minutes the silent-detector notification should fire. Periodic reports do not prove the float still moves. Lift it occasionally.
+6. Drill the new cap on center. Mount the float with its gaskets so the cap still seals. Check that the float slides freely.
+
+7. Screw the finished cap onto the cleanout first. Then join the float leads to the cable from the box with WAGO 221 connectors (or a weatherproof disconnect). The wires must not tether the cap to the box; you have to unplug to unscrew and snake the line. WAGOs are fine under a roof overhang. They are not rated as an outdoor weatherproof connector.
+
+8. Power it. Lift the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on (Wet) and the backup notification should fire. Unplug the Photon; within a few minutes the silent-detector notification should fire. Periodic reports do not prove the float still moves. Lift it occasionally.
 
 ```
 USB 5V ── Photon 2 USB
