@@ -22,6 +22,7 @@ const unsigned long OPEN_DEBOUNCE_MS = 2000;
 const unsigned long PUBLISH_PERIOD_MS = 60000;
 const unsigned long MQTT_RECONNECT_MS = 5000;
 const int MQTT_KEEPALIVE_S = 60;
+const int MQTT_BUFFER_SIZE = 256;
 
 const char* TOPIC_AVAILABILITY = "sewer/availability";
 const char* TOPIC_REED = "sewer/reed";
@@ -30,7 +31,7 @@ const char* PAYLOAD_CLOSED = "CLOSED";
 
 void mqttCallback(char*, uint8_t*, unsigned int) {}
 
-MQTT mqtt(MQTT_BROKER_IP, MQTT_BROKER_PORT, 256, MQTT_KEEPALIVE_S, mqttCallback);
+MQTT mqtt(MQTT_BROKER_IP, MQTT_BROKER_PORT, MQTT_BUFFER_SIZE, MQTT_KEEPALIVE_S, mqttCallback);
 
 bool rawOpen = false;
 bool stableOpen = false;
@@ -102,7 +103,7 @@ void setup() {
     pinMode(LED_PIN, OUTPUT);
     pinMode(REED_PIN, INPUT_PULLUP);
 
-    Watchdog.init(WatchdogConfiguration().timeout(60s));
+    Watchdog.init(WatchdogConfiguration().timeout(90s));
     Watchdog.start();
 
     Log.info("setup complete");
