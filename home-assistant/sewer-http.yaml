@@ -5,7 +5,7 @@
 #     packages:
 #       sewer: !include sewer-http.yaml
 #
-# Put the webhook id in firmware/config_and_secrets.h as HA_WEBHOOK_PATH
+# Put the webhook id in firmware/src/config_and_secrets.h as HA_WEBHOOK_PATH
 # (/api/webhook/<id>). Keep local_only. Replace notify.notify with your
 # phone notify service.
 
