@@ -24,8 +24,9 @@ const pin_t LED_PIN = D7;
 const unsigned long SEWERBACKUP_DEBOUNCE_MS = 2000;
 const unsigned long HEARTBEAT_MS = 60000;
 const unsigned long RETRY_MS = 5000;
-const char* STATE_ON = "ON";
-const char* STATE_OFF = "OFF";
+const auto WATCHDOG_TIMEOUT = 90s;
+const char* const STATE_ON = "ON";
+const char* const STATE_OFF = "OFF";
 
 // contactOpenedAt is when the pin went open (0 = closed). sewerBackup is
 // the latched condition after SEWERBACKUP_DEBOUNCE_MS.
@@ -33,11 +34,11 @@ static bool sewerBackup;
 static unsigned long contactOpenedAt;
 
 static const char* lastStateSentToHomeAssistant;
-static unsigned long lastHomeAssistantPublishAt;
+static unsigned long lastHomeAssistantSentAt;
 static bool sendBackoff;
 static unsigned long sendBackoffStartedAt;
 
-static bool haDownPublishedToParticleCloud;
+static bool haDownSentToParticleCloud;
 static const char* lastStateSentToParticleCloud;
 
 #ifdef SEWER_TRANSPORT_HTTP
@@ -56,7 +57,7 @@ const int MQTT_KEEPALIVE_S = 60;
 const int MQTT_BUFFER_SIZE = 256;
 const char* TOPIC_AVAILABILITY = "sewer/availability";
 const char* TOPIC_STATE = "sewer/state";
-void mqttCallback(char*, uint8_t*, unsigned int) {}
+void mqttCallback(char*, uint8_t*, unsigned int) {}  // MQTT constructor requires one; this device does not subscribe.
 MQTT mqtt(MQTT_BROKER_IP, MQTT_BROKER_PORT, MQTT_BUFFER_SIZE, MQTT_KEEPALIVE_S, mqttCallback);
 #endif
 
@@ -142,10 +143,10 @@ void setup() {
     sewerBackup = false;
     contactOpenedAt = 0;
     lastStateSentToHomeAssistant = nullptr;
-    lastHomeAssistantPublishAt = 0;
+    lastHomeAssistantSentAt = 0;
     sendBackoff = false;
     sendBackoffStartedAt = 0;
-    haDownPublishedToParticleCloud = false;
+    haDownSentToParticleCloud = false;
     lastStateSentToParticleCloud = nullptr;
 
     pinMode(LED_PIN, OUTPUT);
@@ -158,7 +159,7 @@ void setup() {
     httpRequest.timeout = HTTP_TIMEOUT_MS;
 #endif
 
-    Watchdog.init(WatchdogConfiguration().timeout(90s));
+    Watchdog.init(WatchdogConfiguration().timeout(WATCHDOG_TIMEOUT));
     Watchdog.start();
     Log.info("setup complete");
 }
@@ -179,31 +180,31 @@ void loop() {
 
     const char* state = sewerBackup ? STATE_ON : STATE_OFF;
 
-    const bool haDue = lastStateSentToHomeAssistant != state ||
+    const bool homeAssistantSendDue = lastStateSentToHomeAssistant != state ||
         (lastStateSentToHomeAssistant != nullptr &&
-         millis() - lastHomeAssistantPublishAt >= HEARTBEAT_MS);
-    if (haDue && (!sendBackoff || millis() - sendBackoffStartedAt >= RETRY_MS)) {
+         millis() - lastHomeAssistantSentAt >= HEARTBEAT_MS);
+    if (homeAssistantSendDue && (!sendBackoff || millis() - sendBackoffStartedAt >= RETRY_MS)) {
         if (sendToHomeAssistant(state)) {
-            if (haDownPublishedToParticleCloud) {
+            if (haDownSentToParticleCloud) {
                 sendToParticleCloud("sewer-ha", "ok");
-                haDownPublishedToParticleCloud = false;
+                haDownSentToParticleCloud = false;
             }
             lastStateSentToHomeAssistant = state;
-            lastHomeAssistantPublishAt = millis();
+            lastHomeAssistantSentAt = millis();
             sendBackoff = false;
         } else {
             sendBackoff = true;
             sendBackoffStartedAt = millis();
-            if (!haDownPublishedToParticleCloud) {
+            if (!haDownSentToParticleCloud) {
 #ifdef SEWER_TRANSPORT_HTTP
                 if (WiFi.ready()) {
                     String err = String::format("HTTP %d", httpResponse.status);
-                    haDownPublishedToParticleCloud =
+                    haDownSentToParticleCloud =
                         sendToParticleCloud("sewer-ha", err.c_str());
                 }
 #endif
 #ifdef SEWER_TRANSPORT_MQTT
-                haDownPublishedToParticleCloud =
+                haDownSentToParticleCloud =
                     sendToParticleCloud("sewer-ha", "mqtt");
 #endif
             }

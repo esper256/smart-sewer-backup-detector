@@ -25,12 +25,12 @@ automation:
   - id: sewerBackup
     alias: SewerBackup
     mode: single
-    trigger:
-      - platform: state
+    triggers:
+      - trigger: state
         entity_id: binary_sensor.sewer_cleanout_float
         to: "on"
-    action:
-      - service: notify.notify
+    actions:
+      - action: notify.notify
         data:
           title: SewerBackup
           message: Float is up. Stop draining water.
@@ -38,16 +38,16 @@ automation:
   - id: sewer_detector_silent
     alias: Sewer detector silent
     mode: single
-    trigger:
-      - platform: state
+    triggers:
+      - trigger: state
         entity_id: binary_sensor.sewer_cleanout_float
         to:
           - unavailable
           - unknown
         for:
           minutes: 5
-    action:
-      - service: notify.notify
+    actions:
+      - action: notify.notify
         data:
           title: Sewer detector silent
           message: No timely updates. Check power, Wi-Fi, Mosquitto, and the Photon.

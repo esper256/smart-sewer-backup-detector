@@ -2,7 +2,6 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -22,7 +21,7 @@ static void spin(unsigned long ms) {
     }
 }
 
-static void boot_dry() {
+static void boot_clear() {
     Host::reset();
     Host::pin[D2] = LOW;
     setup();
@@ -99,7 +98,7 @@ static void require_particle(std::initializer_list<const char*> states) {
 }
 
 static void test_boot_posts_off() {
-    boot_dry();
+    boot_clear();
     require_ha({"OFF"});
     REQUIRE(last_post().port == 8123);
     REQUIRE(last_post().path == "/api/webhook/replacemewithyourwebhookid");
@@ -108,8 +107,8 @@ static void test_boot_posts_off() {
     std::puts("ok  boot posts OFF");
 }
 
-static void test_short_open_stays_dry() {
-    boot_dry();
+static void test_short_open_stays_clear() {
+    boot_clear();
     Host::pin[D2] = HIGH;
     spin(1500);
     require_ha({"OFF"});
@@ -118,7 +117,7 @@ static void test_short_open_stays_dry() {
 }
 
 static void test_open_debounce_then_clear() {
-    boot_dry();
+    boot_clear();
     go_sewerBackup();
     go_clear();
     require_ha({"OFF", "ON", "OFF"});
@@ -127,7 +126,7 @@ static void test_open_debounce_then_clear() {
 }
 
 static void test_three_sewerBackup_cycles() {
-    boot_dry();
+    boot_clear();
     go_sewerBackup();
     go_clear();
     go_sewerBackup();
@@ -140,7 +139,7 @@ static void test_three_sewerBackup_cycles() {
 }
 
 static void test_debounce_restarts_after_cancel() {
-    boot_dry();
+    boot_clear();
     Host::pin[D2] = HIGH;
     spin(1500);
     go_clear();
@@ -156,7 +155,7 @@ static void test_debounce_restarts_after_cancel() {
 }
 
 static void test_heartbeat() {
-    boot_dry();
+    boot_clear();
     spin(60000);
     require_ha({"OFF", "OFF"});
     require_particle({"OFF"});
@@ -190,7 +189,7 @@ static void test_http_retry() {
 }
 
 static void test_ha_fail_on_second_sewerBackup_then_clear() {
-    boot_dry();
+    boot_clear();
     go_sewerBackup();
     go_clear();
     require_ha({"OFF", "ON", "OFF"});
@@ -230,7 +229,7 @@ static void test_wifi_down() {
 
 int main() {
     test_boot_posts_off();
-    test_short_open_stays_dry();
+    test_short_open_stays_clear();
     test_open_debounce_then_clear();
     test_three_sewerBackup_cycles();
     test_debounce_restarts_after_cancel();
