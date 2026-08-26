@@ -1,11 +1,12 @@
 // Particle Photon 2 — sewer backup detector
-// Device OS 5.3+. Add the MQTT library (hirotakaster). Copy secrets.example.h → secrets.h.
+// Device OS 5.3+. Add the MQTT library (hirotakaster). Copy secrets.example.h to secrets.h.
 //
 // Wiring: reed between D2 and GND (INPUT_PULLUP). Debug LED on D7.
 // Dry pipe (float down, reed closed) => D2 LOW.
-// Backup (float up, reed open)       => D2 HIGH. A cut wire looks like an alarm.
+// Backup (float up, reed open)       => D2 HIGH.
+// A cut wire reads the same as a backup.
 //
-// The Photon reports reed state over LAN MQTT. Home Assistant decides what to alert.
+// The Photon reports reed state over LAN MQTT. Home Assistant sends the alerts.
 
 #include "Particle.h"
 #include "MQTT.h"

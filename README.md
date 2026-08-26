@@ -1,6 +1,6 @@
 # Sewer Backup Detector
 
-This page is the build notes for a sewer backup warning I installed at my house. The lateral is long and clogs; catching that early is worth doing. Hardware is about $50–$75. Built July 2025.
+This page is the build notes for a sewer backup warning I installed at my house. The sewer lateral is long and has ongoing root problems, so an early warning is useful. Hardware is about $50–$75. Built July 2025.
 
 Firmware: [`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino).
 
@@ -14,9 +14,9 @@ A float in the cleanout can trip while the backup is still below the fixtures. H
 
 ## How it works
 
-A magnetic float switch is mounted through a replacement cleanout cap. A Particle Photon 2 reads the switch and publishes its state to MQTT on the LAN. Home Assistant watches that feed and sends two notifications: the float is up (stop using water), or the Photon has gone quiet (power, Wi-Fi, or the broker).
+A magnetic float switch is mounted through a cleanout cap that has been drilled for the sensor. A Particle Photon 2 reads the switch and publishes its state to MQTT on the LAN. Home Assistant uses that feed for two notifications: one when the float is up, so you can stop draining water, and one when the Photon has stopped reporting, which usually means a loss of power, Wi-Fi, or the MQTT broker.
 
-If Home Assistant or phone notifications are down, you will not get either alert. Confirm that path separately.
+Those alerts only arrive if Home Assistant can still reach your phone. It is advisable to set up a recurring notification simply to test that notifications, in general, are being delivered.
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ flowchart LR
 |---|---|---:|
 | Photon 2 | Particle Photon 2 | $18 |
 | Float | Stainless vertical magnetic reed float, stem sized to the cleanout (see Build) | $8–15 |
-| Cleanout cap | New 4" threaded PVC/ABS cap matching the existing cleanout | $5–15 |
+| Cleanout cap | New 4" threaded PVC/ABS cap matching the existing cleanout, then modified | $5–15 |
 | Enclosure | Helunsi IP68 junction box, Amazon `B07TGHYQF4` | $5–10 |
 | Antenna | Dual-band paddle + U.FL pigtail, Amazon `B07R21LN5P` | $5–10 |
 | Connectors | WAGO 221 at the cap so the cap still unscrews | $1–3 |
@@ -47,16 +47,16 @@ Tools: drill and a bit matching the float gland, wire strippers, soldering iron,
 
 ## What you need already
 
-- A sewer cleanout you can open, and permission to modify a replacement cap.
+- A sewer cleanout you can open, and a new matching cap you are allowed to modify.
 - Ability to work around sewage and sewer gas.
 - Wi-Fi that reaches the cleanout, and the ability to flash a Particle board.
 - Home Assistant and an MQTT broker on the LAN (the Mosquitto add-on is enough).
-- A disconnect at the cap so the cleanout can still be opened for snaking. Do not hard-wire the cap to the electronics box.
+- A disconnect at the cap so you can unscrew it and snake the line. The sensor wires should not tether the cap to the electronics box.
 
 ## Build
 
 1. Measure the riser inside diameter and the depth from the underside of the cap to where the cleanout joins the lateral. The float hangs in that vertical pipe, as low as you can place it. It must not stick down into the lateral. In the running sewer it will catch paper and roots and can cause a clog. Order a stem that puts the whole float above that junction when the cap is tight.
-2. Drill the replacement cap on center. Mount the float with its gaskets so the cap still seals. Check that the float slides freely.
+2. Drill the new cap on center. Mount the float with its gaskets so the cap still seals. Check that the float slides freely.
 3. Wire the reed **D2–GND**. D2 is `INPUT_PULLUP`. Closed reed (dry) reads LOW. Open reed (float up, or a cut wire) reads HIGH. Debug LED on **D7** (soldered on this build). Do not hold D7 low at reset; that puts a Photon 2 into test mode.
 4. Put the Photon in the IP68 box. USB power through a gland. Use the U.FL pigtail and an external antenna if the internal antenna is weak at the cleanout. Fitting the board, glands, and antenna in the small box was the slowest mechanical step.
 
@@ -64,9 +64,9 @@ Tools: drill and a bit matching the float gland, wire strippers, soldering iron,
 
 5. Run Mosquitto on the LAN. Create a broker user. Point Home Assistant’s MQTT integration at it. Do not expose port 1883.
 6. Copy [`firmware/secrets.example.h`](firmware/secrets.example.h) to `firmware/secrets.h`. Fill in broker IP, username, and password. `secrets.h` is gitignored.
-7. Flash Device OS 5.3 or later. In Particle Web IDE: new app, add the `.ino` and `secrets.h`, add the **MQTT** library (hirotakaster), flash OTA. Particle Cloud is used for OTA. Telemetry stays on the LAN.
+7. Flash Device OS 5.3 or later. In Particle Web IDE: new app, add the `.ino` and `secrets.h`, add the **MQTT** library (hirotakaster), flash OTA. Particle Cloud is used for OTA. MQTT traffic stays on the LAN.
 8. Install [`home-assistant/sewer.yaml`](home-assistant/sewer.yaml) as a package. Replace `notify.notify` with your phone notify service.
-9. Join the float leads with WAGO 221 connectors or a weatherproof disconnect so you can unplug and unscrew the cap. WAGOs are fine under a roof overhang. They are not an outdoor weatherproof connector.
+9. Join the float leads with WAGO 221 connectors or a weatherproof disconnect so you can unplug and unscrew the cap. WAGOs are fine under a roof overhang. They are not rated as an outdoor weatherproof connector.
 10. Test by lifting the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on and the backup notification should fire. Unplug the Photon; within 5 minutes the silent-detector notification should fire. Periodic MQTT messages do not prove the float still moves. Lift it occasionally.
 
 ```
@@ -100,7 +100,7 @@ const char* MQTT_USERNAME = "replacemewithyourusername";
 const char* MQTT_PASSWORD = "replacemewithyourpassword";
 ```
 
-MQTT on the LAN is unencrypted. Do not route it through the internet.
+MQTT on the LAN is unencrypted. Do not send it across the internet.
 
 ## Failure modes
 
@@ -108,9 +108,9 @@ MQTT on the LAN is unencrypted. Do not route it through the internet.
 |---|---|---|
 | Float jammed with debris | Stays `CLOSED` | Inspect after every trip. Lift-test on a schedule. |
 | Float hanging into the lateral | Catches debris and can clog the line | Size the stem as in Build step 1. |
-| Cut sensor wire | Reports `OPEN` | Same signal as a real backup. A different circuit is required to tell them apart. |
+| Cut sensor wire | Reports `OPEN` | Same signal as a real backup. Distinguishing the two needs a different circuit. |
 | Power, Wi-Fi, or Photon down | LWT `offline` and/or HA `expire_after` 180 s | Silent-detector alert after 5 min. |
-| Mosquitto, HA, or phone notify down | No remote alert | Not detectable from this device. |
+| Mosquitto, Home Assistant, or phone notifications down | No remote alert | Recurring notification test, as in How it works. |
 | MQTT connect hang | Loop stops | Hardware watchdog resets after 90 s. |
 
 Opening a sanitary sewer exposes you to pathogens and hydrogen sulfide. Keep the cap sealed. Follow local plumbing code.
@@ -122,4 +122,4 @@ Opening a sanitary sewer exposes you to pathogens and hydrogen sulfide. Keep the
 - A local sounder that does not depend on Home Assistant.
 - MQTT TLS if the broker is not on a trusted LAN.
 
-License: MIT. Early warning only; not a life-safety device.
+License: MIT. This is an early warning, not a life-safety system.
