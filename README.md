@@ -128,9 +128,9 @@ Tools: drill and bits for the float gland, the antenna bulkhead, and the box gla
 
    MQTT instead: [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml) and Firmware below. [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) is only the helpers, and only if you already use packages.
 
-4. Flash Device OS 5.3 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. Reports to Home Assistant stay on the LAN. Do this on the bench with USB before the board goes in the box.
+4. Flash Device OS 5.3.2 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. Reports to Home Assistant stay on the LAN. Do this on the bench with USB before the board goes in the box.
 
-5. Put the proto board in the IP68 box. Drill for the antenna bulkhead, feed the U.FL pigtail through, and click it onto the Photon. Fit cable glands. Run 2-conductor from the screw terminal out one gland, and USB power through another gland into the Photon’s USB jack. Close the lid. Fitting the board, glands, and antenna in the small box was the slowest mechanical step.
+5. Put the proto board in the IP68 box. Drill for the antenna bulkhead, feed the U.FL pigtail through, and click it onto the Photon. The Photon 2 also has a chip antenna; it uses that unless firmware selects the U.FL. This firmware does. Fit cable glands. Run 2-conductor from the screw terminal out one gland, and USB power through another gland into the Photon’s USB jack. Close the lid. Fitting the board, glands, and antenna in the small box was the slowest mechanical step.
 
    ![Photon 2 in the IP68 box with U.FL pigtail and sensor wires](images/finished_electronics_box_closeup.jpg)
 
@@ -154,7 +154,7 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant YAML and compiles the sketch on the host against the small fakes in `test/fakes/`. That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
 
-The Photon reports `ON` (sewer backup) or `OFF` (clear) 2 s after the contact opens, immediately when it closes, and every 60 s either way. That is a Home Assistant moisture binary_sensor: `on` is Wet, `off` is Dry. Open circuit is a sewer backup (float up or a cut wire). Automations decide whether that is an alarm. The 2 s delay is debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s. Home Assistant is notified first; Particle Cloud gets the same state afterward.
+The Photon reports `ON` (sewer backup) or `OFF` (clear) 2 s after the contact opens, immediately when it closes, and every 60 s either way. That is a Home Assistant moisture binary_sensor: `on` is Wet, `off` is Dry. Open circuit is a sewer backup (float up or a cut wire). Automations decide whether that is an alarm. The 2 s delay is debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s. Home Assistant is notified first; Particle Cloud gets the same state afterward. The sketch selects the U.FL antenna at boot. The Photon 2 default is the chip antenna.
 
 Particle Console already shows whether the Photon is online. Firmware also publishes `sewer-state` (`ON`/`OFF`) on change, and `sewer-ha` if the Home Assistant send fails or later recovers. The 60 s heartbeat stays on the LAN. USB serial (`particle serial monitor`) has the same change events plus debounce; it does not print a line every minute.
 

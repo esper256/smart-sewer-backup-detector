@@ -1,5 +1,5 @@
 // Particle Photon 2 — sewer backup detector
-// Device OS 5.3+. Edit config_and_secrets.h.
+// Device OS 5.3.2+. Edit config_and_secrets.h.
 //
 // Dry contact D2–GND, INPUT_PULLUP. Debug LED on D7.
 // Closed (clear) => LOW => OFF. Open (sewer backup or cut wire) => HIGH => ON.
@@ -18,6 +18,7 @@
 
 SYSTEM_THREAD(ENABLED);
 SerialLogHandler logHandler(LOG_LEVEL_INFO);
+STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
 
 const pin_t CONTACT_PIN = D2;
 const pin_t LED_PIN = D7;
