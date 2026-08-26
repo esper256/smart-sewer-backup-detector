@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -80,14 +81,39 @@ def check_firmware() -> None:
     print("firmware strings match HA packages")
 
 
+def check_host_firmware() -> None:
+    sys.stdout.flush()
+    out = ROOT / "test" / "firmware_test"
+    cmd = [
+        "g++",
+        "-std=c++17",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-I",
+        str(ROOT / "test" / "fakes"),
+        "-I",
+        str(FIRMWARE / "src"),
+        str(ROOT / "test" / "test_firmware.cpp"),
+        str(CPP),
+        "-o",
+        str(out),
+    ]
+    subprocess.check_call(cmd)
+    subprocess.check_call([str(out)])
+
+
 def main() -> None:
     check_yaml()
     check_firmware()
+    check_host_firmware()
 
 
 if __name__ == "__main__":
     try:
         main()
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
     except Exception as e:
         print(e, file=sys.stderr)
         sys.exit(1)

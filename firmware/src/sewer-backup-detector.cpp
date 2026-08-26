@@ -39,6 +39,7 @@ bool havePublished = false;
 bool publishedOpen = false;
 unsigned long lastPublishMs = 0;
 unsigned long lastRetryMs = 0;
+bool retryWait = false;
 
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
@@ -94,10 +95,11 @@ void ensureTransport() {
     if (!WiFi.ready()) {
         return;
     }
-    if (lastRetryMs != 0 && (millis() - lastRetryMs) < RETRY_MS) {
+    if (retryWait && (millis() - lastRetryMs) < RETRY_MS) {
         return;
     }
     lastRetryMs = millis();
+    retryWait = true;
 
     String clientId = String("sewer-") + System.deviceID();
     const bool ok = mqtt.connect(
@@ -118,6 +120,7 @@ void ensureTransport() {
     mqtt.publish(TOPIC_AVAILABILITY, "online", true);
     havePublished = false;
     lastRetryMs = 0;
+    retryWait = false;
     Log.info("mqtt connected");
 }
 
@@ -141,12 +144,13 @@ void publishReed(bool force) {
     if (!force && !stateChanged && !heartbeatDue) {
         return;
     }
-    if (lastRetryMs != 0 && (millis() - lastRetryMs) < RETRY_MS) {
+    if (retryWait && (millis() - lastRetryMs) < RETRY_MS) {
         return;
     }
 
     if (!sendReed()) {
         lastRetryMs = millis();
+        retryWait = true;
         return;
     }
 
@@ -154,10 +158,20 @@ void publishReed(bool force) {
     publishedOpen = stableOpen;
     lastPublishMs = millis();
     lastRetryMs = 0;
+    retryWait = false;
     Log.info("reed %s", reedPayload());
 }
 
 void setup() {
+    rawOpen = false;
+    stableOpen = false;
+    openSince = 0;
+    havePublished = false;
+    publishedOpen = false;
+    lastPublishMs = 0;
+    lastRetryMs = 0;
+    retryWait = false;
+
     pinMode(LED_PIN, OUTPUT);
     pinMode(REED_PIN, INPUT_PULLUP);
 

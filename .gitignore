@@ -1,3 +1,4 @@
 firmware/secrets.h
 firmware/lib/
 *.bin
+test/firmware_test

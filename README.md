@@ -83,7 +83,7 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 [`firmware/src/sewer-backup-detector.cpp`](firmware/src/sewer-backup-detector.cpp) and [`firmware/src/config_and_secrets.h`](firmware/src/config_and_secrets.h).
 
-There is no Device OS without a Photon. `python3 scripts/verify.py` checks that the Home Assistant packages parse and that the webhook id and MQTT topic strings match the firmware. Compiling for the board is `particle compile p2 firmware`; that pulls HttpClient and MQTT rather than keeping copies in this repo.
+There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant packages, checks that the webhook id and MQTT topic strings match the firmware, and compiles the sketch on the host against the small fakes in `test/fakes/` (debounce, heartbeat, retry). That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
 
 The Photon reports `OPEN` or `CLOSED` 2 s after the reed opens, immediately on close, and every 60 s either way. The 2 s delay is reed debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s.
 
