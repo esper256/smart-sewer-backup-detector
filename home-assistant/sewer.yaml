@@ -7,11 +7,6 @@
 #
 # Replace notify.notify with your mobile notify service.
 
-input_button:
-  test_ha_notifications:
-    name: Test HA notifications
-    icon: mdi:bell-check
-
 mqtt:
   binary_sensor:
     - name: Sewer cleanout float
@@ -56,25 +51,3 @@ automation:
         data:
           title: Sewer detector silent
           message: No timely MQTT updates. Check power, Wi-Fi, Mosquitto, and the Photon.
-
-  - id: test_ha_notifications
-    alias: Test HA notifications
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: input_button.test_ha_notifications
-      - platform: time
-        at: "09:00:00"
-    condition:
-      - condition: or
-        conditions:
-          - condition: template
-            value_template: "{{ trigger.platform == 'state' }}"
-          - condition: time
-            weekday:
-              - sun
-    action:
-      - service: notify.notify
-        data:
-          title: HA notification test
-          message: If you got this, phone alerts work. The sewer detector is a separate path.

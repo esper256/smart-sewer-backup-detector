@@ -1,6 +1,6 @@
 # Sewer Backup Detector
 
-A Particle Photon 2 plus a reed float in a sewer cleanout cap. The Photon publishes reed state over LAN MQTT. Home Assistant alerts you when the float is up, when the device goes silent, and — separately — that phone notifications still work.
+A Particle Photon 2 plus a reed float in a sewer cleanout cap. The Photon publishes reed state over LAN MQTT. Home Assistant alerts you when the float is up, and when the device goes silent.
 
 Built July 2025. Hardware ≈ $50–$75. Firmware: [`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino).
 
@@ -25,11 +25,12 @@ flowchart LR
 
 A float switch is the right sensor: the question is binary (is this normally empty pipe now wet?) and the stem length sets the trip height.
 
-The Photon is a sensor, not an alarm panel. It publishes `OPEN` / `CLOSED` on change (2 s debounce to `OPEN`) and every 60 s otherwise. HA owns the three alerts:
+The Photon is a sensor, not an alarm panel. It publishes `OPEN` / `CLOSED` on change (2 s debounce to `OPEN`) and every 60 s otherwise. HA owns two alerts:
 
 1. Float is up → stop draining.
 2. No timely MQTT traffic → the detector is dead.
-3. A notification test that does not involve the Photon, so you can tell “HA/phone is broken” from “the sewer sensor is broken.”
+
+Silence is not proof of health. If HA or your phone notify path is broken, both of those alerts fail closed. Keep some independent check that HA can still reach you — that is outside this project.
 
 ## Cost, parts, skills
 
@@ -73,7 +74,7 @@ If the cleanout is unsheltered, WAGO 221s are the wrong outdoor connector. Mine 
 7. Flash Device OS 5.3+. Particle Web IDE: new app, add both `.ino` and `secrets.h`, add the **MQTT** library (hirotakaster), flash OTA. Particle cloud is for OTA only; telemetry stays on the LAN.
 8. Drop [`home-assistant/sewer.yaml`](home-assistant/sewer.yaml) in as a package. Replace `notify.notify` with your phone notify service.
 9. Join the float leads with WAGOs (or a real weatherproof disconnect) so you can unplug and unscrew the cap for snaking.
-10. Test: lift the float >2 s → HA `binary_sensor.sewer_cleanout_float` goes on and the backup notify fires. Unplug the Photon → within 5 minutes the silent-detector notify fires. Press **Test HA notifications** (or wait for Sunday 09:00) → phone buzzes without touching the sewer box. Periodic MQTT publishes do **not** prove the float still moves. Lift it on a schedule.
+10. Test: lift the float >2 s → HA `binary_sensor.sewer_cleanout_float` goes on and the backup notify fires. Unplug the Photon → within 5 minutes the silent-detector notify fires. Periodic MQTT publishes do **not** prove the float still moves. Lift it on a schedule.
 
 ```
 USB 5V ── Photon 2 USB
@@ -115,7 +116,7 @@ Plain MQTT on the LAN. No TLS, no Particle Cloud webhooks, no HTTP to HA.
 | Float jammed with debris | Stays `CLOSED` | Inspect after every trip; periodic lift test |
 | Cut sensor wire | Reports `OPEN` (fail-safe) | You cannot tell “backup” from “broken wire” without a different circuit |
 | Power / Wi-Fi / Photon down | LWT `offline` and/or HA `expire_after` 180 s | Silent-detector alert after 5 min |
-| Mosquitto / HA down | No remote alert | Notification test tells you the phone path still works; it does not revive a dead broker |
+| Mosquitto / HA / phone notify down | No remote alert | This detector cannot tell you that. Confirm HA notify separately. |
 | MQTT connect hang | Loop stops | Hardware watchdog resets after 60 s |
 
 Opening a sanitary sewer can expose you to pathogens and H₂S. Keep the cap sealed. Follow local plumbing code.
