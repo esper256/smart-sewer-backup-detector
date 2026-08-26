@@ -64,15 +64,69 @@ Tools: drill and bits for the float gland, the antenna bulkhead, and the box gla
 
 2. Solder female headers onto a 0.1" proto board so the Photon 2 plugs in and can come out again. Solder a 2-position screw terminal onto the same board, on traces that land on **D2** and **GND**. Debug LED on **D7** (soldered on this build) to GND, with a series resistor unless the LED is a module. Do not hold D7 low at reset; that puts a Photon 2 into test mode. D2 is `INPUT_PULLUP`: closed contact (clear) is LOW, open contact (backup, or a cut wire) is HIGH. There is no useful Arduino-shield carrier for a Photon 2 in a box this small; the proto board is the part.
 
-3. Copy [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) into the Home Assistant config directory, the same folder as `configuration.yaml`. That folder is `/config` on Home Assistant OS (File editor, Samba, or Studio Code Server). Under the existing `homeassistant:` key (add the key if it is missing), enable packages:
+3. Home Assistant. Nothing to copy into `/config`.
+
+   Settings → Devices & services → Helpers → Create helper. Use these names so the entity ids match the automations.
+
+   - Text: **Sewer state**, maximum length 16.
+   - Date and/or time: **Sewer detector last ok**, date and time both on.
+   - Template, binary sensor: **Sewer cleanout float**, device class Moisture. State template:
+
+     `{{ states('input_text.sewer_state') == 'ON' }}`
+
+   - Template, binary sensor: **Sewer detector stale**. State template:
+
+     `{{ states('input_datetime.sewer_detector_last_ok') in ['unknown', 'unavailable', ''] or (now() - states('input_datetime.sewer_detector_last_ok') | as_datetime | as_local).total_seconds() > 300 }}`
+
+   Then Settings → Automations & scenes → Create automation. Name it **Sewer detector HTTP update**. Add trigger → **Webhook**. Home Assistant fills in a random webhook id; copy it (the copy button on the webhook URL). Put `/api/webhook/<that-id>` in [`firmware/src/config_and_secrets.h`](firmware/src/config_and_secrets.h) as `HA_WEBHOOK_PATH`, and the Home Assistant dotted-quad in `HA_HOST`. Gear next to the webhook id: POST only, local only.
+
+   Add two actions in the same automation, or ⋮ → Edit in YAML and paste this under `actions:` without replacing the `webhook_id` Home Assistant wrote:
 
    ```yaml
-   homeassistant:
-     packages:
-       sewer: !include sewer-http.yaml
+   actions:
+     - action: input_text.set_value
+       target:
+         entity_id: input_text.sewer_state
+       data:
+         value: "{{ trigger.json.state }}"
+     - action: input_datetime.set_datetime
+       target:
+         entity_id: input_datetime.sewer_detector_last_ok
+       data:
+         timestamp: "{{ now().timestamp() }}"
    ```
 
-   If `packages:` is already there, add only the `sewer:` line. Pick a long unguessable webhook id. Put it in the yaml as `webhook_id`, and in [`firmware/src/config_and_secrets.h`](firmware/src/config_and_secrets.h) as `HA_WEBHOOK_PATH` (`/api/webhook/<that-id>`). Set `HA_HOST` to the Home Assistant dotted-quad. Keep `local_only`. Replace `notify.notify` with your phone: Developer tools → Actions, search `notify`, typically `notify.mobile_app_<name>`. Restart Home Assistant. You should see automations named Sewer backup and Sewer detector silent. MQTT instead: [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml) and Firmware below.
+   Suggested notify rules: Create automation → ⋮ → Edit in YAML, paste each of these as its own automation. Replace `notify.notify` with your phone (Developer tools → Actions, typically `notify.mobile_app_<name>`).
+
+   ```yaml
+   alias: Sewer backup
+   mode: single
+   triggers:
+     - trigger: state
+       entity_id: binary_sensor.sewer_cleanout_float
+       to: "on"
+   actions:
+     - action: notify.notify
+       data:
+         title: Sewer backup
+         message: Float is up. Stop draining water.
+   ```
+
+   ```yaml
+   alias: Sewer detector silent
+   mode: single
+   triggers:
+     - trigger: state
+       entity_id: binary_sensor.sewer_detector_stale
+       to: "on"
+   actions:
+     - action: notify.notify
+       data:
+         title: Sewer detector silent
+         message: No timely updates. Check power, Wi-Fi, Home Assistant, and the Photon.
+   ```
+
+   MQTT instead: [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml) and Firmware below. [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) is only the helpers, and only if you already use packages.
 
 4. Flash Device OS 5.3 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. Backup state stays on the LAN. Do this on the bench with USB before the board goes in the box.
 
@@ -98,7 +152,7 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 [`firmware/src/sewer-backup-detector.cpp`](firmware/src/sewer-backup-detector.cpp) and [`firmware/src/config_and_secrets.h`](firmware/src/config_and_secrets.h).
 
-There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant packages and compiles the sketch on the host against the small fakes in `test/fakes/`. That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
+There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant YAML and compiles the sketch on the host against the small fakes in `test/fakes/`. That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
 
 The Photon reports `ON` (backup) or `OFF` (clear) 2 s after the contact opens, immediately when it closes, and every 60 s either way. That is a Home Assistant moisture binary_sensor: `on` is Wet, `off` is Dry. Open circuit is a backup (float up or a cut wire). Automations decide whether a backup is an alarm. The 2 s delay is debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s. Home Assistant is notified first; Particle Cloud gets the same state afterward.
 
@@ -110,7 +164,7 @@ Particle Console already shows whether the Photon is online. Firmware also publi
 #define SEWER_TRANSPORT_HTTP
 const char* HA_HOST = "192.168.0.2";
 const int HA_PORT = 8123;
-const char* HA_WEBHOOK_PATH = "/api/webhook/replacemewithyourwebhookid";
+const char* HA_WEBHOOK_PATH = "/api/webhook/<id-from-the-webhook-automation>";
 ```
 
 **MQTT** (optional): uncomment `SEWER_TRANSPORT_MQTT` instead, add the MQTT library, and use [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml). Install a broker, create a user, and do not expose port 1883.
