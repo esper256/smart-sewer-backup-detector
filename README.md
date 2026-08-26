@@ -83,9 +83,11 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 [`firmware/src/sewer-backup-detector.cpp`](firmware/src/sewer-backup-detector.cpp) and [`firmware/src/config_and_secrets.h`](firmware/src/config_and_secrets.h).
 
-There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant packages, checks that the webhook id and MQTT topic strings match the firmware, and compiles the sketch on the host against the small fakes in `test/fakes/` (debounce, heartbeat, retry). That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
+There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant packages and compiles the sketch on the host against the small fakes in `test/fakes/`. That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
 
 The Photon reports `OPEN` or `CLOSED` 2 s after the reed opens, immediately on close, and every 60 s either way. The 2 s delay is reed debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s.
+
+Particle Console already shows whether the Photon is online. Firmware also publishes `sewer-reed` (`OPEN`/`CLOSED`) on state change, and `sewer-ha` if the Home Assistant send fails or later recovers. The 60 s heartbeat stays on the LAN. USB serial (`particle serial monitor`) has the same change events plus debounce; it does not print a line every minute.
 
 **HTTP** (default): POST `{"reed":"OPEN"}` or `{"reed":"CLOSED"}` to `/api/webhook/<id>` on Home Assistant port 8123. Put a dotted-quad in `HA_HOST`. Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
 

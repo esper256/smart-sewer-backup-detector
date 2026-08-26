@@ -31,6 +31,25 @@ static const Host::HttpPost& last_post() {
     return Host::posts.back();
 }
 
+static int cloud_count(const char* event) {
+    int n = 0;
+    for (const auto& e : Host::cloud) {
+        if (e.event == event) {
+            n++;
+        }
+    }
+    return n;
+}
+
+static bool last_cloud_is(const char* event, const char* data) {
+    for (int i = static_cast<int>(Host::cloud.size()) - 1; i >= 0; i--) {
+        if (Host::cloud[static_cast<size_t>(i)].event == event) {
+            return Host::cloud[static_cast<size_t>(i)].data == data;
+        }
+    }
+    return false;
+}
+
 static bool body_is(const Host::HttpPost& post, const char* reed) {
     char expected[32];
     std::snprintf(expected, sizeof(expected), "{\"reed\":\"%s\"}", reed);
@@ -43,6 +62,9 @@ static void test_boot_posts_closed() {
     REQUIRE(body_is(last_post(), "CLOSED"));
     REQUIRE(last_post().port == 8123);
     REQUIRE(last_post().path == "/api/webhook/replacemewithyourwebhookid");
+    REQUIRE(cloud_count("sewer-reed") == 1);
+    REQUIRE(last_cloud_is("sewer-reed", "CLOSED"));
+    REQUIRE(cloud_count("sewer-ha") == 0);
     std::puts("ok  boot posts CLOSED");
 }
 
@@ -52,6 +74,7 @@ static void test_short_open_does_not_post() {
     spin(1500);
     REQUIRE(Host::posts.size() == 1);
     REQUIRE(body_is(last_post(), "CLOSED"));
+    REQUIRE(cloud_count("sewer-reed") == 1);
     std::puts("ok  open < 2s stays CLOSED");
 }
 
@@ -66,6 +89,8 @@ static void test_open_debounce_then_close() {
     loop();
     REQUIRE(Host::posts.size() == 3);
     REQUIRE(body_is(last_post(), "CLOSED"));
+    REQUIRE(cloud_count("sewer-reed") == 3);
+    REQUIRE(last_cloud_is("sewer-reed", "CLOSED"));
     std::puts("ok  2s open posts OPEN, close posts CLOSED");
 }
 
@@ -74,6 +99,8 @@ static void test_heartbeat() {
     spin(60000);
     REQUIRE(Host::posts.size() == 2);
     REQUIRE(body_is(last_post(), "CLOSED"));
+    REQUIRE(cloud_count("sewer-reed") == 1);
+    REQUIRE(cloud_count("sewer-ha") == 0);
     std::puts("ok  60s heartbeat");
 }
 
@@ -84,14 +111,20 @@ static void test_http_retry() {
     setup();
     loop();
     REQUIRE(Host::posts.size() == 1);
+    REQUIRE(cloud_count("sewer-ha") == 1);
+    REQUIRE(last_cloud_is("sewer-ha", "HTTP 500"));
 
     spin(4000);
     REQUIRE(Host::posts.size() == 1);
+    REQUIRE(cloud_count("sewer-ha") == 1);
 
     Host::http_status = 200;
     spin(2000);
     REQUIRE(Host::posts.size() == 2);
     REQUIRE(body_is(last_post(), "CLOSED"));
+    REQUIRE(cloud_count("sewer-reed") == 1);
+    REQUIRE(cloud_count("sewer-ha") == 2);
+    REQUIRE(last_cloud_is("sewer-ha", "ok"));
     std::puts("ok  failed POST retries after 5s");
 }
 
@@ -101,11 +134,14 @@ static void test_wifi_down() {
     setup();
     loop();
     REQUIRE(Host::posts.empty());
+    REQUIRE(Host::cloud.empty());
 
     Host::wifi_ready = true;
     spin(5100);
     REQUIRE(Host::posts.size() == 1);
     REQUIRE(body_is(last_post(), "CLOSED"));
+    REQUIRE(cloud_count("sewer-reed") == 1);
+    REQUIRE(cloud_count("sewer-ha") == 0);
     std::puts("ok  no POST until Wi-Fi is ready");
 }
 

@@ -11,5 +11,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install PyYAML
         run: python3 -m pip install --user pyyaml
-      - name: Check HA YAML, firmware strings, and host tests
+      - name: Parse HA YAML and run host firmware tests
         run: python3 scripts/verify.py

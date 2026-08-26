@@ -39,12 +39,19 @@ struct HttpPost {
 };
 inline std::vector<HttpPost> posts;
 
+struct CloudEvent {
+    std::string event;
+    std::string data;
+};
+inline std::vector<CloudEvent> cloud;
+
 inline void reset() {
     millis_ms = 0;
     std::fill(std::begin(pin), std::end(pin), LOW);
     wifi_ready = true;
     http_status = 200;
     posts.clear();
+    cloud.clear();
 }
 }
 
@@ -105,6 +112,17 @@ struct WatchdogClass {
 struct SerialLogHandler {
     explicit SerialLogHandler(int) {}
 };
+
+constexpr int PRIVATE = 1;
+
+struct ParticleClass {
+    bool connected() const { return Host::wifi_ready; }
+    bool publish(const char* event, const char* data, int = PRIVATE) {
+        Host::cloud.push_back({event, data});
+        return true;
+    }
+};
+[[maybe_unused]] inline ParticleClass Particle;
 
 inline unsigned long millis() { return Host::millis_ms; }
 inline void delay(unsigned long ms) { Host::millis_ms += ms; }

@@ -40,6 +40,9 @@ bool publishedOpen = false;
 unsigned long lastPublishMs = 0;
 unsigned long lastRetryMs = 0;
 bool retryWait = false;
+bool haCloudError = false;
+bool cloudReedKnown = false;
+bool cloudReedOpen = false;
 
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
@@ -68,6 +71,52 @@ const char* reedPayload() {
     return stableOpen ? PAYLOAD_OPEN : PAYLOAD_CLOSED;
 }
 
+bool cloudNote(const char* event, const char* data) {
+    if (!Particle.connected()) {
+        return false;
+    }
+    return Particle.publish(event, data, PRIVATE);
+}
+
+void cloudReedIfChanged() {
+    if (cloudReedKnown && cloudReedOpen == stableOpen) {
+        return;
+    }
+    if (!cloudNote("sewer-reed", reedPayload())) {
+        return;
+    }
+    cloudReedKnown = true;
+    cloudReedOpen = stableOpen;
+}
+
+void noteHaResult(bool ok) {
+    if (ok) {
+        if (haCloudError) {
+            cloudNote("sewer-ha", "ok");
+            haCloudError = false;
+        }
+        return;
+    }
+    if (haCloudError) {
+        return;
+    }
+#ifdef SEWER_TRANSPORT_HTTP
+    if (!WiFi.ready()) {
+        return;
+    }
+    String detail = String::format("HTTP %d", httpResponse.status);
+    if (!cloudNote("sewer-ha", detail.c_str())) {
+        return;
+    }
+#endif
+#ifdef SEWER_TRANSPORT_MQTT
+    if (!cloudNote("sewer-ha", "mqtt")) {
+        return;
+    }
+#endif
+    haCloudError = true;
+}
+
 #ifdef SEWER_TRANSPORT_HTTP
 void ensureTransport() {
 }
@@ -80,8 +129,11 @@ bool sendReed() {
 
     httpRequest.body = String::format("{\"reed\":\"%s\"}", reedPayload());
     http.post(httpRequest, httpResponse, httpHeaders);
-    Log.info("HTTP %d", httpResponse.status);
-    return httpResponse.status == 200;
+    if (httpResponse.status != 200) {
+        Log.warn("HTTP %d", httpResponse.status);
+        return false;
+    }
+    return true;
 }
 #endif
 
@@ -141,6 +193,10 @@ void publishReed(bool force) {
     const bool heartbeatDue = havePublished &&
         ((millis() - lastPublishMs) >= PUBLISH_PERIOD_MS);
 
+    if (stateChanged) {
+        cloudReedIfChanged();
+    }
+
     if (!force && !stateChanged && !heartbeatDue) {
         return;
     }
@@ -151,15 +207,19 @@ void publishReed(bool force) {
     if (!sendReed()) {
         lastRetryMs = millis();
         retryWait = true;
+        noteHaResult(false);
         return;
     }
 
+    noteHaResult(true);
     havePublished = true;
     publishedOpen = stableOpen;
     lastPublishMs = millis();
     lastRetryMs = 0;
     retryWait = false;
-    Log.info("reed %s", reedPayload());
+    if (stateChanged) {
+        Log.info("reed %s", reedPayload());
+    }
 }
 
 void setup() {
@@ -171,6 +231,9 @@ void setup() {
     lastPublishMs = 0;
     lastRetryMs = 0;
     retryWait = false;
+    haCloudError = false;
+    cloudReedKnown = false;
+    cloudReedOpen = false;
 
     pinMode(LED_PIN, OUTPUT);
     pinMode(REED_PIN, INPUT_PULLUP);
