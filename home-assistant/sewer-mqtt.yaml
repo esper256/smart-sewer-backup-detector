@@ -1,11 +1,11 @@
-# Home Assistant package. Requires the MQTT integration (Mosquitto add-on on the LAN).
+# MQTT package. Requires Mosquitto (Home Assistant add-on is enough) and the MQTT integration.
 #
 # configuration.yaml:
 #   homeassistant:
 #     packages:
-#       sewer: !include sewer.yaml
+#       sewer: !include sewer-mqtt.yaml
 #
-# Replace notify.notify with your mobile notify service.
+# Replace notify.notify with your phone notify service.
 
 mqtt:
   binary_sensor:
@@ -50,4 +50,4 @@ automation:
       - service: notify.notify
         data:
           title: Sewer detector silent
-          message: No timely MQTT updates. Check power, Wi-Fi, Mosquitto, and the Photon.
+          message: No timely updates. Check power, Wi-Fi, Mosquitto, and the Photon.

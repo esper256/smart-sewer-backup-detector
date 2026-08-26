@@ -1,0 +1,81 @@
+# HTTP package. The Photon POSTs JSON to a Home Assistant webhook. No MQTT broker.
+#
+# configuration.yaml:
+#   homeassistant:
+#     packages:
+#       sewer: !include sewer-http.yaml
+#
+# Put the webhook id in firmware/secrets.h as HA_WEBHOOK_PATH
+# (/api/webhook/<id>). Keep local_only. Replace notify.notify with your
+# phone notify service.
+
+input_text:
+  sewer_reed:
+    name: Sewer reed
+    max: 16
+
+input_datetime:
+  sewer_detector_last_ok:
+    name: Sewer detector last ok
+    has_date: true
+    has_time: true
+
+template:
+  - binary_sensor:
+      - name: Sewer cleanout float
+        unique_id: sewer_cleanout_float
+        device_class: moisture
+        state: "{{ states('input_text.sewer_reed') == 'OPEN' }}"
+      - name: Sewer detector stale
+        unique_id: sewer_detector_stale
+        state: >-
+          {{ states('input_datetime.sewer_detector_last_ok') in ['unknown', 'unavailable', '']
+             or (now() - states('input_datetime.sewer_detector_last_ok') | as_datetime | as_local).total_seconds() > 300 }}
+
+automation:
+  - id: sewer_http_webhook
+    alias: Sewer detector HTTP update
+    mode: single
+    trigger:
+      - platform: webhook
+        webhook_id: replacemewithyourwebhookid
+        allowed_methods:
+          - POST
+        local_only: true
+    action:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.sewer_reed
+        data:
+          value: "{{ trigger.json.reed }}"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.sewer_detector_last_ok
+        data:
+          timestamp: "{{ now().timestamp() }}"
+
+  - id: sewer_backup_alarm
+    alias: Sewer backup
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.sewer_cleanout_float
+        to: "on"
+    action:
+      - service: notify.notify
+        data:
+          title: Sewer backup
+          message: Float is up. Stop draining water.
+
+  - id: sewer_detector_silent
+    alias: Sewer detector silent
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.sewer_detector_stale
+        to: "on"
+    action:
+      - service: notify.notify
+        data:
+          title: Sewer detector silent
+          message: No timely updates. Check power, Wi-Fi, Home Assistant, and the Photon.
