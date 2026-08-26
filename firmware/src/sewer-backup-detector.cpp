@@ -2,9 +2,9 @@
 // Device OS 5.3+. Edit config_and_secrets.h.
 //
 // Dry contact D2–GND, INPUT_PULLUP. Debug LED on D7.
-// Closed (dry) => LOW => OFF. Open (backup or cut wire) => HIGH => ON.
-// ON/OFF are Home Assistant binary_sensor payloads (device_class moisture:
-// on = wet, off = dry). Automations decide whether that is an alarm.
+// Closed (clear) => LOW => OFF. Open (backup or cut wire) => HIGH => ON.
+// ON/OFF are Home Assistant moisture binary_sensor payloads (on = Wet).
+// Automations decide whether a backup is an alarm.
 
 #include "Particle.h"
 #include "config_and_secrets.h"
@@ -21,24 +21,24 @@ SerialLogHandler logHandler(LOG_LEVEL_INFO);
 
 const pin_t CONTACT_PIN = D2;
 const pin_t LED_PIN = D7;
-const unsigned long WET_DEBOUNCE_MS = 2000;
+const unsigned long BACKUP_DEBOUNCE_MS = 2000;
 const unsigned long HEARTBEAT_MS = 60000;
 const unsigned long RETRY_MS = 5000;
-const int kUnsent = -1;
+const char* STATE_ON = "ON";
+const char* STATE_OFF = "OFF";
 
-// contactOpenedAt is when the pin went open (0 = closed). wet is the latched
-// moisture after WET_DEBOUNCE_MS. They disagree only during debounce.
-static bool wet;
+// contactOpenedAt is when the pin went open (0 = closed). backup is the
+// latched sewer backup after BACKUP_DEBOUNCE_MS.
+static bool backup;
 static unsigned long contactOpenedAt;
 
-// 0 = dry, 1 = wet, kUnsent = nothing delivered yet.
-static int lastWetSentToHomeAssistant;
+static const char* lastStateSentToHomeAssistant;
 static unsigned long lastHomeAssistantPublishAt;
-static bool backingOff;
-static unsigned long backoffStartedAt;
+static bool sendBackoff;
+static unsigned long sendBackoffStartedAt;
 
 static bool haDownPublishedToParticleCloud;
-static int lastWetSentToParticleCloud;
+static const char* lastStateSentToParticleCloud;
 
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
@@ -96,11 +96,11 @@ void connectToMqtt() {
     if (!WiFi.ready()) {
         return;
     }
-    if (backingOff && millis() - backoffStartedAt < RETRY_MS) {
+    if (sendBackoff && millis() - sendBackoffStartedAt < RETRY_MS) {
         return;
     }
-    backingOff = true;
-    backoffStartedAt = millis();
+    sendBackoff = true;
+    sendBackoffStartedAt = millis();
 
     String clientId = String("sewer-") + System.deviceID();
     if (!mqtt.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD,
@@ -109,22 +109,22 @@ void connectToMqtt() {
         return;
     }
     mqtt.publish(TOPIC_AVAILABILITY, "online", true);
-    lastWetSentToHomeAssistant = kUnsent;
-    backingOff = false;
+    lastStateSentToHomeAssistant = nullptr;
+    sendBackoff = false;
     Log.info("mqtt connected");
 }
 #endif
 
-void updateWet(bool contactOpen) {
+void updateBackup(bool contactOpen) {
     if (!contactOpen) {
         contactOpenedAt = 0;
-        if (wet) {
-            wet = false;
-            Log.info("dry");
+        if (backup) {
+            backup = false;
+            Log.info("clear");
         }
         return;
     }
-    if (wet) {
+    if (backup) {
         return;
     }
     if (contactOpenedAt == 0) {
@@ -132,21 +132,21 @@ void updateWet(bool contactOpen) {
         Log.info("contact open");
         return;
     }
-    if (millis() - contactOpenedAt >= WET_DEBOUNCE_MS) {
-        wet = true;
-        Log.info("wet");
+    if (millis() - contactOpenedAt >= BACKUP_DEBOUNCE_MS) {
+        backup = true;
+        Log.info("backup");
     }
 }
 
 void setup() {
-    wet = false;
+    backup = false;
     contactOpenedAt = 0;
-    lastWetSentToHomeAssistant = kUnsent;
+    lastStateSentToHomeAssistant = nullptr;
     lastHomeAssistantPublishAt = 0;
-    backingOff = false;
-    backoffStartedAt = 0;
+    sendBackoff = false;
+    sendBackoffStartedAt = 0;
     haDownPublishedToParticleCloud = false;
-    lastWetSentToParticleCloud = kUnsent;
+    lastStateSentToParticleCloud = nullptr;
 
     pinMode(LED_PIN, OUTPUT);
     pinMode(CONTACT_PIN, INPUT_PULLUP);
@@ -175,26 +175,25 @@ void loop() {
 
     const bool contactOpen = digitalRead(CONTACT_PIN) == HIGH;
     digitalWrite(LED_PIN, (contactOpen && ((millis() / 100) % 2)) ? HIGH : LOW);
-    updateWet(contactOpen);
+    updateBackup(contactOpen);
 
-    const int wetInt = wet ? 1 : 0;
-    const char* state = wet ? "ON" : "OFF";
+    const char* state = backup ? STATE_ON : STATE_OFF;
 
-    const bool haDue = lastWetSentToHomeAssistant != wetInt ||
-        (lastWetSentToHomeAssistant != kUnsent &&
+    const bool haDue = lastStateSentToHomeAssistant != state ||
+        (lastStateSentToHomeAssistant != nullptr &&
          millis() - lastHomeAssistantPublishAt >= HEARTBEAT_MS);
-    if (haDue && (!backingOff || millis() - backoffStartedAt >= RETRY_MS)) {
+    if (haDue && (!sendBackoff || millis() - sendBackoffStartedAt >= RETRY_MS)) {
         if (sendToHomeAssistant(state)) {
             if (haDownPublishedToParticleCloud) {
                 sendToParticleCloud("sewer-ha", "ok");
                 haDownPublishedToParticleCloud = false;
             }
-            lastWetSentToHomeAssistant = wetInt;
+            lastStateSentToHomeAssistant = state;
             lastHomeAssistantPublishAt = millis();
-            backingOff = false;
+            sendBackoff = false;
         } else {
-            backingOff = true;
-            backoffStartedAt = millis();
+            sendBackoff = true;
+            sendBackoffStartedAt = millis();
             if (!haDownPublishedToParticleCloud) {
 #ifdef SEWER_TRANSPORT_HTTP
                 if (WiFi.ready()) {
@@ -211,9 +210,9 @@ void loop() {
         }
     }
 
-    if (lastWetSentToParticleCloud != wetInt) {
+    if (lastStateSentToParticleCloud != state) {
         if (sendToParticleCloud("sewer-state", state)) {
-            lastWetSentToParticleCloud = wetInt;
+            lastStateSentToParticleCloud = state;
         }
     }
 
