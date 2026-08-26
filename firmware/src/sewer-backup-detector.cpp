@@ -23,18 +23,20 @@ const unsigned long ALARM_DEBOUNCE_MS = 2000;
 const unsigned long HEARTBEAT_MS = 60000;
 const unsigned long RETRY_MS = 5000;
 
-struct {
-    bool alarm;
-    unsigned long openedAt;
-    bool haSent;
-    bool haAlarm;
-    unsigned long haSentAt;
-    bool backingOff;
-    unsigned long backoffAt;
-    bool particleHaDown;
-    bool particleHasAlarm;
-    bool particleAlarm;
-} g;
+// contactOpenedAt is when the pin went open (0 = closed). alarm is the
+// latched result after ALARM_DEBOUNCE_MS. They disagree only during debounce.
+static bool alarm;
+static unsigned long contactOpenedAt;
+
+static bool haSent;
+static bool haAlarm;
+static unsigned long haSentAt;
+static bool backingOff;
+static unsigned long backoffAt;
+
+static bool particleHaDown;
+static bool particleHasAlarm;
+static bool particleAlarm;
 
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
@@ -55,10 +57,6 @@ const char* TOPIC_STATE = "sewer/state";
 void mqttCallback(char*, uint8_t*, unsigned int) {}
 MQTT mqtt(MQTT_BROKER_IP, MQTT_BROKER_PORT, MQTT_BUFFER_SIZE, MQTT_KEEPALIVE_S, mqttCallback);
 #endif
-
-bool elapsed(unsigned long start, unsigned long ms) {
-    return millis() - start >= ms;
-}
 
 bool sendToParticleCloud(const char* event, const char* data) {
     return Particle.connected() && Particle.publish(event, data, PRIVATE);
@@ -96,11 +94,11 @@ void connectToMqtt() {
     if (!WiFi.ready()) {
         return;
     }
-    if (g.backingOff && !elapsed(g.backoffAt, RETRY_MS)) {
+    if (backingOff && millis() - backoffAt < RETRY_MS) {
         return;
     }
-    g.backingOff = true;
-    g.backoffAt = millis();
+    backingOff = true;
+    backoffAt = millis();
 
     String clientId = String("sewer-") + System.deviceID();
     if (!mqtt.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD,
@@ -109,40 +107,47 @@ void connectToMqtt() {
         return;
     }
     mqtt.publish(TOPIC_AVAILABILITY, "online", true);
-    g.haSent = false;
-    g.backingOff = false;
+    haSent = false;
+    backingOff = false;
     Log.info("mqtt connected");
 }
 #endif
 
-void readContact() {
-    const bool open = digitalRead(CONTACT_PIN) == HIGH;
-    digitalWrite(LED_PIN, (open && ((millis() / 100) % 2)) ? HIGH : LOW);
-
-    if (!open) {
-        g.openedAt = 0;
-        if (g.alarm) {
-            g.alarm = false;
+void updateAlarm(bool contactOpen) {
+    if (!contactOpen) {
+        contactOpenedAt = 0;
+        if (alarm) {
+            alarm = false;
             Log.info("OK");
         }
         return;
     }
-    if (g.alarm) {
+    if (alarm) {
         return;
     }
-    if (g.openedAt == 0) {
-        g.openedAt = millis();
+    if (contactOpenedAt == 0) {
+        contactOpenedAt = millis();
         Log.info("contact open");
         return;
     }
-    if (elapsed(g.openedAt, ALARM_DEBOUNCE_MS)) {
-        g.alarm = true;
+    if (millis() - contactOpenedAt >= ALARM_DEBOUNCE_MS) {
+        alarm = true;
         Log.info("ALARM");
     }
 }
 
 void setup() {
-    g = {};
+    alarm = false;
+    contactOpenedAt = 0;
+    haSent = false;
+    haAlarm = false;
+    haSentAt = 0;
+    backingOff = false;
+    backoffAt = 0;
+    particleHaDown = false;
+    particleHasAlarm = false;
+    particleAlarm = false;
+
     pinMode(LED_PIN, OUTPUT);
     pinMode(CONTACT_PIN, INPUT_PULLUP);
 
@@ -168,40 +173,43 @@ void loop() {
     }
 #endif
 
-    readContact();
-    const char* state = g.alarm ? "ALARM" : "OK";
+    const bool contactOpen = digitalRead(CONTACT_PIN) == HIGH;
+    digitalWrite(LED_PIN, (contactOpen && ((millis() / 100) % 2)) ? HIGH : LOW);
+    updateAlarm(contactOpen);
 
-    if (!g.particleHasAlarm || g.particleAlarm != g.alarm) {
+    const char* state = alarm ? "ALARM" : "OK";
+
+    if (!particleHasAlarm || particleAlarm != alarm) {
         if (sendToParticleCloud("sewer-alarm", state)) {
-            g.particleHasAlarm = true;
-            g.particleAlarm = g.alarm;
+            particleHasAlarm = true;
+            particleAlarm = alarm;
         }
     }
 
-    const bool haDue = !g.haSent || g.haAlarm != g.alarm ||
-        (g.haSent && elapsed(g.haSentAt, HEARTBEAT_MS));
-    if (haDue && (!g.backingOff || elapsed(g.backoffAt, RETRY_MS))) {
+    const bool haDue = !haSent || haAlarm != alarm ||
+        (haSent && millis() - haSentAt >= HEARTBEAT_MS);
+    if (haDue && (!backingOff || millis() - backoffAt >= RETRY_MS)) {
         if (sendToHomeAssistant(state)) {
-            if (g.particleHaDown) {
+            if (particleHaDown) {
                 sendToParticleCloud("sewer-ha", "ok");
-                g.particleHaDown = false;
+                particleHaDown = false;
             }
-            g.haSent = true;
-            g.haAlarm = g.alarm;
-            g.haSentAt = millis();
-            g.backingOff = false;
+            haSent = true;
+            haAlarm = alarm;
+            haSentAt = millis();
+            backingOff = false;
         } else {
-            g.backingOff = true;
-            g.backoffAt = millis();
-            if (!g.particleHaDown) {
+            backingOff = true;
+            backoffAt = millis();
+            if (!particleHaDown) {
 #ifdef SEWER_TRANSPORT_HTTP
                 if (WiFi.ready()) {
                     String err = String::format("HTTP %d", httpResponse.status);
-                    g.particleHaDown = sendToParticleCloud("sewer-ha", err.c_str());
+                    particleHaDown = sendToParticleCloud("sewer-ha", err.c_str());
                 }
 #endif
 #ifdef SEWER_TRANSPORT_MQTT
-                g.particleHaDown = sendToParticleCloud("sewer-ha", "mqtt");
+                particleHaDown = sendToParticleCloud("sewer-ha", "mqtt");
 #endif
             }
         }
