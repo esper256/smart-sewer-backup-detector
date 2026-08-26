@@ -1,10 +1,10 @@
-// Particle Photon 2 — sewer backup detector
+// Particle Photon 2 — sewerBackup detector
 // Device OS 5.3+. Edit config_and_secrets.h.
 //
 // Dry contact D2–GND, INPUT_PULLUP. Debug LED on D7.
-// Closed (clear) => LOW => OFF. Open (backup or cut wire) => HIGH => ON.
+// Closed (clear) => LOW => OFF. Open (sewerBackup or cut wire) => HIGH => ON.
 // ON/OFF are Home Assistant moisture binary_sensor payloads (on = Wet).
-// Automations decide whether a backup is an alarm.
+// Automations decide whether a sewerBackup is an alarm.
 
 #include "Particle.h"
 #include "config_and_secrets.h"
@@ -21,15 +21,15 @@ SerialLogHandler logHandler(LOG_LEVEL_INFO);
 
 const pin_t CONTACT_PIN = D2;
 const pin_t LED_PIN = D7;
-const unsigned long BACKUP_DEBOUNCE_MS = 2000;
+const unsigned long SEWERBACKUP_DEBOUNCE_MS = 2000;
 const unsigned long HEARTBEAT_MS = 60000;
 const unsigned long RETRY_MS = 5000;
 const char* STATE_ON = "ON";
 const char* STATE_OFF = "OFF";
 
-// contactOpenedAt is when the pin went open (0 = closed). backup is the
-// latched sewer backup after BACKUP_DEBOUNCE_MS.
-static bool backup;
+// contactOpenedAt is when the pin went open (0 = closed). sewerBackup is
+// the latched condition after SEWERBACKUP_DEBOUNCE_MS.
+static bool sewerBackup;
 static unsigned long contactOpenedAt;
 
 static const char* lastStateSentToHomeAssistant;
@@ -115,16 +115,16 @@ void connectToMqtt() {
 }
 #endif
 
-void updateBackup(bool contactOpen) {
+void updateSewerBackup(bool contactOpen) {
     if (!contactOpen) {
         contactOpenedAt = 0;
-        if (backup) {
-            backup = false;
+        if (sewerBackup) {
+            sewerBackup = false;
             Log.info("clear");
         }
         return;
     }
-    if (backup) {
+    if (sewerBackup) {
         return;
     }
     if (contactOpenedAt == 0) {
@@ -132,14 +132,14 @@ void updateBackup(bool contactOpen) {
         Log.info("contact open");
         return;
     }
-    if (millis() - contactOpenedAt >= BACKUP_DEBOUNCE_MS) {
-        backup = true;
-        Log.info("backup");
+    if (millis() - contactOpenedAt >= SEWERBACKUP_DEBOUNCE_MS) {
+        sewerBackup = true;
+        Log.info("sewerBackup");
     }
 }
 
 void setup() {
-    backup = false;
+    sewerBackup = false;
     contactOpenedAt = 0;
     lastStateSentToHomeAssistant = nullptr;
     lastHomeAssistantPublishAt = 0;
@@ -175,9 +175,9 @@ void loop() {
 
     const bool contactOpen = digitalRead(CONTACT_PIN) == HIGH;
     digitalWrite(LED_PIN, (contactOpen && ((millis() / 100) % 2)) ? HIGH : LOW);
-    updateBackup(contactOpen);
+    updateSewerBackup(contactOpen);
 
-    const char* state = backup ? STATE_ON : STATE_OFF;
+    const char* state = sewerBackup ? STATE_ON : STATE_OFF;
 
     const bool haDue = lastStateSentToHomeAssistant != state ||
         (lastStateSentToHomeAssistant != nullptr &&

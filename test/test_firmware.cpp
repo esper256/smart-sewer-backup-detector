@@ -29,7 +29,7 @@ static void boot_dry() {
     loop();
 }
 
-static void go_backup() {
+static void go_sewerBackup() {
     Host::pin[D2] = HIGH;
     spin(2100);
 }
@@ -119,24 +119,24 @@ static void test_short_open_stays_dry() {
 
 static void test_open_debounce_then_clear() {
     boot_dry();
-    go_backup();
+    go_sewerBackup();
     go_clear();
     require_ha({"OFF", "ON", "OFF"});
     require_particle({"OFF", "ON", "OFF"});
     std::puts("ok  2s open posts ON, close posts OFF");
 }
 
-static void test_three_backup_cycles() {
+static void test_three_sewerBackup_cycles() {
     boot_dry();
-    go_backup();
+    go_sewerBackup();
     go_clear();
-    go_backup();
+    go_sewerBackup();
     go_clear();
-    go_backup();
+    go_sewerBackup();
     go_clear();
     require_ha({"OFF", "ON", "OFF", "ON", "OFF", "ON", "OFF"});
     require_particle({"OFF", "ON", "OFF", "ON", "OFF", "ON", "OFF"});
-    std::puts("ok  three backup/clear cycles");
+    std::puts("ok  three sewerBackup/clear cycles");
 }
 
 static void test_debounce_restarts_after_cancel() {
@@ -152,7 +152,7 @@ static void test_debounce_restarts_after_cancel() {
     spin(700);
     require_ha({"OFF", "ON"});
     require_particle({"OFF", "ON"});
-    std::puts("ok  cancelled debounce does not count toward backup");
+    std::puts("ok  cancelled debounce does not count toward sewerBackup");
 }
 
 static void test_heartbeat() {
@@ -189,14 +189,14 @@ static void test_http_retry() {
     std::puts("ok  failed POST retries after 5s");
 }
 
-static void test_ha_fail_on_second_backup_then_clear() {
+static void test_ha_fail_on_second_sewerBackup_then_clear() {
     boot_dry();
-    go_backup();
+    go_sewerBackup();
     go_clear();
     require_ha({"OFF", "ON", "OFF"});
 
     Host::http_status = 500;
-    go_backup();
+    go_sewerBackup();
     REQUIRE(body_is(last_post(), "ON"));
     REQUIRE(cloud_count("sewer-ha") == 1);
     require_particle({"OFF", "ON", "OFF", "ON"});
@@ -209,7 +209,7 @@ static void test_ha_fail_on_second_backup_then_clear() {
     go_clear();
     require_ha({"OFF", "ON", "OFF", "ON", "ON", "OFF"});
     require_particle({"OFF", "ON", "OFF", "ON", "OFF"});
-    std::puts("ok  HA fail on later backup, then clear");
+    std::puts("ok  HA fail on later sewerBackup, then clear");
 }
 
 static void test_wifi_down() {
@@ -232,11 +232,11 @@ int main() {
     test_boot_posts_off();
     test_short_open_stays_dry();
     test_open_debounce_then_clear();
-    test_three_backup_cycles();
+    test_three_sewerBackup_cycles();
     test_debounce_restarts_after_cancel();
     test_heartbeat();
     test_http_retry();
-    test_ha_fail_on_second_backup_then_clear();
+    test_ha_fail_on_second_sewerBackup_then_clear();
     test_wifi_down();
     std::puts("all host firmware tests passed");
     return 0;
