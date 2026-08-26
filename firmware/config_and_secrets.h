@@ -1,7 +1,7 @@
 #pragma once
 
-// Copy this file to config_and_secrets.h and fill in the placeholders.
-// config_and_secrets.h is gitignored.
+// Fill in the placeholders. This file is the one the firmware includes.
+// Do not commit a filled-in copy with a live webhook id or MQTT password.
 
 // HTTP is the default: the Photon POSTs to Home Assistant on the LAN.
 // MQTT is optional if you already run a broker (for example the Mosquitto

@@ -2,7 +2,7 @@
 
 This page is the build notes for a sewer backup warning I installed at my house. The sewer lateral is long and has ongoing root problems, so an early warning is useful. Hardware is about $50–$75. Built July 2025.
 
-Firmware: [`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino).
+Firmware: [`firmware/sewer-backup-detector.cpp`](firmware/sewer-backup-detector.cpp).
 
 ![Photon 2, IP68 box, 4-inch cleanout cap, and stainless float switch](images/entire_project.jpg)
 
@@ -65,9 +65,9 @@ Tools: drill and a bit matching the float gland, wire strippers, soldering iron,
 
    ![Photon 2 in the IP68 box with U.FL pigtail and sensor wires](images/finished_electronics_box_closeup.jpg)
 
-5. Copy [`firmware/config_and_secrets.example.h`](firmware/config_and_secrets.example.h) to `firmware/config_and_secrets.h`. The default is HTTP: set `HA_HOST` and `HA_WEBHOOK_PATH`. `config_and_secrets.h` is gitignored.
+5. Edit [`firmware/config_and_secrets.h`](firmware/config_and_secrets.h). The default is HTTP: set `HA_HOST` and `HA_WEBHOOK_PATH`.
 6. Install [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) as a package. Put the webhook id in `HA_WEBHOOK_PATH` (`/api/webhook/<id>`). Keep the webhook local-only. Replace `notify.notify` with your phone notify service. If you would rather use MQTT, see Firmware below and [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml).
-7. Flash Device OS 5.3 or later. In Particle Web IDE: new app, add the `.ino` and `config_and_secrets.h`, add the **HttpClient** library, flash OTA. Particle Cloud is used for OTA. Reed state stays on the LAN.
+7. Flash Device OS 5.3 or later. Particle Workbench can compile the `.cpp` file as-is. In Particle Web IDE, create an app and paste the `.cpp` into the main sketch (the Web IDE’s default extension is `.ino`; the language is still C++). Add `config_and_secrets.h` to the project and the **HttpClient** library. Flash OTA. Particle Cloud is used for OTA. Reed state stays on the LAN.
 8. Join the float leads with WAGO 221 connectors or a weatherproof disconnect so you can unplug and unscrew the cap. WAGOs are fine under a roof overhang. They are not rated as an outdoor weatherproof connector.
 9. Test by lifting the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on and the backup notification should fire. Unplug the Photon; within a few minutes the silent-detector notification should fire. Periodic reports do not prove the float still moves. Lift it occasionally.
 
@@ -81,7 +81,9 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 ## Firmware
 
-[`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino) and [`firmware/config_and_secrets.example.h`](firmware/config_and_secrets.example.h).
+[`firmware/sewer-backup-detector.cpp`](firmware/sewer-backup-detector.cpp) and [`firmware/config_and_secrets.h`](firmware/config_and_secrets.h).
+
+The source is C++. Particle’s Web IDE still names the sketch `.ino`; that is Arduino-style packaging, not a different language. A `.c` file would be compiled as C and would not build this code.
 
 The Photon reports `OPEN` or `CLOSED` 2 s after the reed opens, immediately on close, and every 60 s either way. The 2 s delay is reed debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s.
 

@@ -1,6 +1,8 @@
 // Particle Photon 2 — sewer backup detector
-// Device OS 5.3+. Copy config_and_secrets.example.h to config_and_secrets.h.
-// HTTP (default): add HttpClient. MQTT (optional): add the MQTT library (hirotakaster).
+// Device OS 5.3+. Edit config_and_secrets.h. HTTP: add HttpClient.
+// MQTT (optional): add the MQTT library (hirotakaster).
+//
+// This is C++ (Particle Device OS / Wiring). A .c extension would compile as C.
 //
 // Wiring: reed between D2 and GND (INPUT_PULLUP). Debug LED on D7.
 // Dry pipe (float down, reed closed) => D2 LOW.
