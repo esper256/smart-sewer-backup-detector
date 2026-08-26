@@ -199,18 +199,23 @@ LAN HTTP and MQTT are unencrypted. Do not send them across the internet.
 
 ## Espressif instead of Particle
 
-The Photon 2 is Particle hardware: Realtek radio, Device OS, Particle Cloud. The usual Home Assistant substitute is an ESP32, often an ESP32-C3, running ESPHome or Arduino-ESP32. The float, the cap, the box, and the WAGOs do not change.
+This build is a Photon 2 because that is what was in the shop. For a new Home Assistant tinkerer who is not deploying a fleet, an ESP32 running ESPHome is the smaller project. Particle's web IDE is a fleet console. It is not aimed at one box in a garage.
 
-ESPHome is the larger difference. Home Assistant would get a native moisture binary sensor. Debounce is `delayed_on`. OTA is from the HA UI. The webhook, the text helper, and this HTTP sketch go away. That is what ESPHome is for.
+The float, cap, box, glands, paddle antenna, and cap WAGOs are the same either way. The board choice is USB power, two float wires (GPIO and GND, internal pull-up), and whether you need U.FL for that paddle.
 
-Arduino-ESP32 would look like this repo: a C++ loop, a GPIO pull-up, an HTTP POST to a webhook. `sendToHomeAssistant` would be rewritten against `WiFiClient`. Watchdog and reconnect are still yours.
+| | Photon 2 (this build) | ESP32 DevKit (typical C3) | ESP32 with screw terminals |
+|---|---|---|---|
+| Board | $18. 0.1" pins, U.FL, USB. | $3–8. Headers and USB-C already on the board. Many have only a PCB antenna. | $10–25. GPIO on terminals. Confirm U.FL if the cleanout needs the paddle. |
+| Landing the float pair | Proto board, female headers, 2-pos screw terminal to D2/GND. Required: the module has nowhere to clamp a wire. | Still two wires. WAGO 221 onto Dupont jumpers (already on the parts list for the cap), or a $1 2-pos terminal on a scrap of proto. Do not solder the gland cable to the DevKit. | Skip the proto board if a GPIO and GND are on the terminals. |
+| Debug LED | Soldered to D7 on this build. | On the DevKit already. | Usually on the board. |
+| First flash | USB, or Particle Cloud if it is already on Wi-Fi. | USB. | USB. |
+| Later firmware over Wi-Fi | Particle Cloud. The Photon calls Particle; you push from Workbench or the Particle site. Works off-LAN. Needs a Particle account, and Particle's cloud has to be up. | ESPHome OTA from the Home Assistant UI, on the LAN. Off-LAN only through whatever you already use to reach HA (Nabu Casa, VPN, Tailscale). Arduino-ESP32 can do the same with ArduinoOTA. | Same as DevKit. |
+| Home Assistant | HTTP webhook and helpers, this repo. | ESPHome: native moisture binary sensor, `delayed_on` for the 2 s debounce, no webhook. | Same as DevKit. |
 
-An ESP32-C3 board is a few dollars. The Photon 2 is about $18. The rest of the bill of materials does not care. Many ESP32 modules have USB-UART on the board; you still want female headers or a socket if the box is going to be opened again.
+The Photon proto-board work is real because a headered module has no screw terminals. An ESP32 DevKit does not recreate that job. Clamping two wires is a WAGO or a two-position terminal, not twenty minutes of pin headers. A pricier terminal-block ESP32 is worth it if it also has U.FL and 5 V USB in a shape that fits the box. It is not worth it only to avoid the terminal.
 
-Particle Cloud OTA is the Photon reason. The box can sit at the cleanout and take firmware from anywhere the Photon can reach Particle, without putting a programmer on USB and without opening Home Assistant to the internet. ESPHome OTA is on the LAN, or through whatever remote access you already use for Home Assistant. Particle Console shows whether the device is online; ESPHome uses Home Assistant availability for the same fact.
+Wi-Fi OTA exists on both. Photon OTA is Particle's network. ESPHome OTA is yours. After the first USB flash you should not need a cable at the cleanout.
 
-A Photon 2 enters test mode if D7 is held low at reset. ESP32 modules have their own strapping pins. Read the datasheet either way.
-
-If the point is a Home Assistant sensor and Particle is not already in the shop, ESPHome on an ESP32 is the smaller HA project. This build used a Photon 2 because Particle was already there, and Cloud OTA reaches a box you do not want to open.
+If Home Assistant is the point and you do not already live in Particle, use ESP32 + ESPHome. If you already flash Photons and want Cloud OTA without thinking about how you remote into HA, this repo is the Photon version.
 
 License: MIT. This is an early warning, not a life-safety system.
