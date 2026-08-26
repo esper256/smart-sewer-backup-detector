@@ -60,21 +60,21 @@ Tools: drill and a bit matching the float gland, wire strippers, soldering iron,
 
 1. Measure the riser inside diameter and the depth from the underside of the cap to where the cleanout joins the lateral. The float hangs in that vertical pipe, as low as you can place it. It must not stick down into the lateral. In the running sewer it will catch paper and roots and can cause a clog. Order a stem that puts the whole float above that junction when the cap is tight.
 2. Drill the new cap on center. Mount the float with its gaskets so the cap still seals. Check that the float slides freely.
-3. Wire the reed **D2–GND**. D2 is `INPUT_PULLUP`. Closed reed (dry) reads LOW. Open reed (float up, or a cut wire) reads HIGH. Debug LED on **D7** (soldered on this build). Do not hold D7 low at reset; that puts a Photon 2 into test mode.
+3. Wire the sensor **D2–GND**. D2 is `INPUT_PULLUP`. Closed contact (dry) reads LOW. Open contact (float up, or a cut wire) reads HIGH. Firmware treats open as alarm. Debug LED on **D7** (soldered on this build). Do not hold D7 low at reset; that puts a Photon 2 into test mode.
 4. Put the Photon in the IP68 box. USB power through a gland. Use the U.FL pigtail and an external antenna if the internal antenna is weak at the cleanout. Fitting the board, glands, and antenna in the small box was the slowest mechanical step.
 
    ![Photon 2 in the IP68 box with U.FL pigtail and sensor wires](images/finished_electronics_box_closeup.jpg)
 
 5. Edit [`firmware/src/config_and_secrets.h`](firmware/src/config_and_secrets.h). The default is HTTP: set `HA_HOST` and `HA_WEBHOOK_PATH`.
 6. Install [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) as a package. Put the webhook id in `HA_WEBHOOK_PATH` (`/api/webhook/<id>`). Keep the webhook local-only. Replace `notify.notify` with your phone notify service. If you would rather use MQTT, see Firmware below and [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml).
-7. Flash Device OS 5.3 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. Reed state stays on the LAN.
+7. Flash Device OS 5.3 or later. Open `firmware/` in Workbench, or `particle compile p2 firmware` / flash OTA. Particle CLI and Workbench fetch HttpClient (and MQTT, if you switch) from `project.properties`. Web IDE: paste the `.cpp` and add HttpClient. Particle Cloud is used for OTA. Alarm state stays on the LAN.
 8. Join the float leads with WAGO 221 connectors or a weatherproof disconnect so you can unplug and unscrew the cap. WAGOs are fine under a roof overhang. They are not rated as an outdoor weatherproof connector.
 9. Test by lifting the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on and the backup notification should fire. Unplug the Photon; within a few minutes the silent-detector notification should fire. Periodic reports do not prove the float still moves. Lift it occasionally.
 
 ```
 USB 5V ── Photon 2 USB
-Reed ──── D2   (INPUT_PULLUP)
-Reed ──── GND
+Sensor ── D2   (INPUT_PULLUP)
+Sensor ── GND
 LED  ──── D7   (debug; soldered on this build)
 LED  ──── GND  (series resistor unless the LED is a module)
 ```
@@ -85,11 +85,11 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 There is no Device OS without a Photon. `python3 scripts/verify.py` parses the Home Assistant packages and compiles the sketch on the host against the small fakes in `test/fakes/`. That is not a Device OS compile. For the board: `particle compile p2 firmware`, which pulls HttpClient and MQTT rather than keeping copies in this repo.
 
-The Photon reports `OPEN` or `CLOSED` 2 s after the reed opens, immediately on close, and every 60 s either way. The 2 s delay is reed debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s.
+The Photon reports `ALARM` or `OK` 2 s after the contact opens, immediately when it closes, and every 60 s either way. Open circuit is alarm (float up or a cut wire). Closed circuit is OK. The 2 s delay is debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s.
 
-Particle Console already shows whether the Photon is online. Firmware also publishes `sewer-reed` (`OPEN`/`CLOSED`) on state change, and `sewer-ha` if the Home Assistant send fails or later recovers. The 60 s heartbeat stays on the LAN. USB serial (`particle serial monitor`) has the same change events plus debounce; it does not print a line every minute.
+Particle Console already shows whether the Photon is online. Firmware also publishes `sewer-alarm` (`ALARM`/`OK`) on state change, and `sewer-ha` if the Home Assistant send fails or later recovers. The 60 s heartbeat stays on the LAN. USB serial (`particle serial monitor`) has the same change events plus debounce; it does not print a line every minute.
 
-**HTTP** (default): POST `{"reed":"OPEN"}` or `{"reed":"CLOSED"}` to `/api/webhook/<id>` on Home Assistant port 8123. Put a dotted-quad in `HA_HOST`. Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
+**HTTP** (default): POST `{"state":"ALARM"}` or `{"state":"OK"}` to `/api/webhook/<id>` on Home Assistant port 8123. Put a dotted-quad in `HA_HOST`. Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
 
 ```cpp
 #define SEWER_TRANSPORT_HTTP
@@ -102,7 +102,7 @@ const char* HA_WEBHOOK_PATH = "/api/webhook/replacemewithyourwebhookid";
 
 | Topic | Payload | When |
 |---|---|---|
-| `sewer/reed` (retain) | `OPEN` / `CLOSED` | state change and every 60 s |
+| `sewer/state` (retain) | `ALARM` / `OK` | state change and every 60 s |
 | `sewer/availability` (retain) | `online` | MQTT connect |
 | `sewer/availability` (LWT) | `offline` | Unclean disconnect |
 
@@ -114,9 +114,9 @@ LAN HTTP and MQTT are unencrypted. Do not send them across the internet.
 
 | Failure | What happens | What to do |
 |---|---|---|
-| Float jammed with debris | Stays `CLOSED` | Inspect after every trip. Lift-test on a schedule. |
+| Float jammed with debris | Stays `OK` | Inspect after every trip. Lift-test on a schedule. |
 | Float hanging into the lateral | Catches debris and can clog the line | Size the stem as in Build step 1. |
-| Cut sensor wire | Reports `OPEN` | Same signal as a real backup. Distinguishing the two needs a different circuit. |
+| Cut sensor wire | Reports `ALARM` | Same signal as a real backup. Distinguishing the two needs a different circuit. |
 | Power, Wi-Fi, or Photon down | No webhook for 5 min (HTTP) or MQTT last-will | Silent-detector alert. |
 | Home Assistant or phone notifications down | No remote alert | Recurring notification test, as in How it works. |
 | HTTP or MQTT call hangs | Loop stops | Hardware watchdog resets after 90 s. |

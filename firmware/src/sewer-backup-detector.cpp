@@ -2,10 +2,9 @@
 // Device OS 5.3+. Edit config_and_secrets.h. Add the HttpClient library
 // (or the MQTT library if you switch transport).
 //
-// Wiring: reed between D2 and GND (INPUT_PULLUP). Debug LED on D7.
-// Dry pipe (float down, reed closed) => D2 LOW.
-// Backup (float up, reed open)       => D2 HIGH.
-// A cut wire reads the same as a backup.
+// Wiring: dry contact between D2 and GND (INPUT_PULLUP). Debug LED on D7.
+// Closed contact (dry pipe) => D2 LOW  => OK.
+// Open contact (backup, or a cut wire) => D2 HIGH => ALARM.
 
 #include "Particle.h"
 #include "config_and_secrets.h"
@@ -21,28 +20,28 @@ SYSTEM_THREAD(ENABLED);
 
 SerialLogHandler logHandler(LOG_LEVEL_INFO);
 
-const pin_t REED_PIN = D2;
+const pin_t CONTACT_PIN = D2;
 const pin_t LED_PIN = D7;
 
-const unsigned long OPEN_DEBOUNCE_MS = 2000;
-const unsigned long PUBLISH_PERIOD_MS = 60000;
+const unsigned long ALARM_DEBOUNCE_MS = 2000;
+const unsigned long HEARTBEAT_MS = 60000;
 const unsigned long RETRY_MS = 5000;
 
-const char* PAYLOAD_OPEN = "OPEN";
-const char* PAYLOAD_CLOSED = "CLOSED";
+const char* STATE_ALARM = "ALARM";
+const char* STATE_OK = "OK";
 
-bool rawOpen = false;
-bool stableOpen = false;
-unsigned long openSince = 0;
+bool contactOpen = false;
+bool alarm = false;
+unsigned long contactOpenAt = 0;
 
-bool havePublished = false;
-bool publishedOpen = false;
-unsigned long lastPublishMs = 0;
-unsigned long lastRetryMs = 0;
-bool retryWait = false;
-bool haCloudError = false;
-bool cloudReedKnown = false;
-bool cloudReedOpen = false;
+bool reported = false;
+bool reportedAlarm = false;
+unsigned long lastReportAt = 0;
+unsigned long lastAttemptAt = 0;
+bool backingOff = false;
+bool haFailed = false;
+bool cloudAlarmKnown = false;
+bool cloudAlarm = false;
 
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
@@ -60,44 +59,44 @@ http_response_t httpResponse;
 const int MQTT_KEEPALIVE_S = 60;
 const int MQTT_BUFFER_SIZE = 256;
 const char* TOPIC_AVAILABILITY = "sewer/availability";
-const char* TOPIC_REED = "sewer/reed";
+const char* TOPIC_STATE = "sewer/state";
 
 void mqttCallback(char*, uint8_t*, unsigned int) {}
 
 MQTT mqtt(MQTT_BROKER_IP, MQTT_BROKER_PORT, MQTT_BUFFER_SIZE, MQTT_KEEPALIVE_S, mqttCallback);
 #endif
 
-const char* reedPayload() {
-    return stableOpen ? PAYLOAD_OPEN : PAYLOAD_CLOSED;
+const char* stateText() {
+    return alarm ? STATE_ALARM : STATE_OK;
 }
 
-bool cloudNote(const char* event, const char* data) {
+bool publishCloud(const char* event, const char* data) {
     if (!Particle.connected()) {
         return false;
     }
     return Particle.publish(event, data, PRIVATE);
 }
 
-void cloudReedIfChanged() {
-    if (cloudReedKnown && cloudReedOpen == stableOpen) {
+void publishCloudAlarm() {
+    if (cloudAlarmKnown && cloudAlarm == alarm) {
         return;
     }
-    if (!cloudNote("sewer-reed", reedPayload())) {
+    if (!publishCloud("sewer-alarm", stateText())) {
         return;
     }
-    cloudReedKnown = true;
-    cloudReedOpen = stableOpen;
+    cloudAlarmKnown = true;
+    cloudAlarm = alarm;
 }
 
-void noteHaResult(bool ok) {
-    if (ok) {
-        if (haCloudError) {
-            cloudNote("sewer-ha", "ok");
-            haCloudError = false;
+void publishCloudHa(bool delivered) {
+    if (delivered) {
+        if (haFailed) {
+            publishCloud("sewer-ha", "ok");
+            haFailed = false;
         }
         return;
     }
-    if (haCloudError) {
+    if (haFailed) {
         return;
     }
 #ifdef SEWER_TRANSPORT_HTTP
@@ -105,29 +104,26 @@ void noteHaResult(bool ok) {
         return;
     }
     String detail = String::format("HTTP %d", httpResponse.status);
-    if (!cloudNote("sewer-ha", detail.c_str())) {
+    if (!publishCloud("sewer-ha", detail.c_str())) {
         return;
     }
 #endif
 #ifdef SEWER_TRANSPORT_MQTT
-    if (!cloudNote("sewer-ha", "mqtt")) {
+    if (!publishCloud("sewer-ha", "mqtt")) {
         return;
     }
 #endif
-    haCloudError = true;
+    haFailed = true;
 }
 
 #ifdef SEWER_TRANSPORT_HTTP
-void ensureTransport() {
-}
-
-bool sendReed() {
+bool deliver() {
     if (!WiFi.ready()) {
         Log.warn("Wi-Fi not ready");
         return false;
     }
 
-    httpRequest.body = String::format("{\"reed\":\"%s\"}", reedPayload());
+    httpRequest.body = String::format("{\"state\":\"%s\"}", stateText());
     http.post(httpRequest, httpResponse, httpHeaders);
     if (httpResponse.status != 200) {
         Log.warn("HTTP %d", httpResponse.status);
@@ -138,20 +134,15 @@ bool sendReed() {
 #endif
 
 #ifdef SEWER_TRANSPORT_MQTT
-void ensureTransport() {
-    if (mqtt.isConnected()) {
-        mqtt.loop();
-        return;
-    }
-
+void mqttConnect() {
     if (!WiFi.ready()) {
         return;
     }
-    if (retryWait && (millis() - lastRetryMs) < RETRY_MS) {
+    if (backingOff && (millis() - lastAttemptAt) < RETRY_MS) {
         return;
     }
-    lastRetryMs = millis();
-    retryWait = true;
+    lastAttemptAt = millis();
+    backingOff = true;
 
     String clientId = String("sewer-") + System.deviceID();
     const bool ok = mqtt.connect(
@@ -170,17 +161,17 @@ void ensureTransport() {
     }
 
     mqtt.publish(TOPIC_AVAILABILITY, "online", true);
-    havePublished = false;
-    lastRetryMs = 0;
-    retryWait = false;
+    reported = false;
+    lastAttemptAt = 0;
+    backingOff = false;
     Log.info("mqtt connected");
 }
 
-bool sendReed() {
+bool deliver() {
     if (!mqtt.isConnected()) {
         return false;
     }
-    if (!mqtt.publish(TOPIC_REED, reedPayload(), true)) {
+    if (!mqtt.publish(TOPIC_STATE, stateText(), true)) {
         Log.warn("mqtt publish failed");
         return false;
     }
@@ -188,55 +179,55 @@ bool sendReed() {
 }
 #endif
 
-void publishReed(bool force) {
-    const bool stateChanged = !havePublished || publishedOpen != stableOpen;
-    const bool heartbeatDue = havePublished &&
-        ((millis() - lastPublishMs) >= PUBLISH_PERIOD_MS);
+void report(bool immediate) {
+    const bool changed = !reported || reportedAlarm != alarm;
+    const bool heartbeatDue = reported &&
+        ((millis() - lastReportAt) >= HEARTBEAT_MS);
 
-    if (stateChanged) {
-        cloudReedIfChanged();
+    if (changed) {
+        publishCloudAlarm();
     }
 
-    if (!force && !stateChanged && !heartbeatDue) {
+    if (!immediate && !changed && !heartbeatDue) {
         return;
     }
-    if (retryWait && (millis() - lastRetryMs) < RETRY_MS) {
-        return;
-    }
-
-    if (!sendReed()) {
-        lastRetryMs = millis();
-        retryWait = true;
-        noteHaResult(false);
+    if (backingOff && (millis() - lastAttemptAt) < RETRY_MS) {
         return;
     }
 
-    noteHaResult(true);
-    havePublished = true;
-    publishedOpen = stableOpen;
-    lastPublishMs = millis();
-    lastRetryMs = 0;
-    retryWait = false;
-    if (stateChanged) {
-        Log.info("reed %s", reedPayload());
+    if (!deliver()) {
+        lastAttemptAt = millis();
+        backingOff = true;
+        publishCloudHa(false);
+        return;
+    }
+
+    publishCloudHa(true);
+    reported = true;
+    reportedAlarm = alarm;
+    lastReportAt = millis();
+    lastAttemptAt = 0;
+    backingOff = false;
+    if (changed) {
+        Log.info("%s", stateText());
     }
 }
 
 void setup() {
-    rawOpen = false;
-    stableOpen = false;
-    openSince = 0;
-    havePublished = false;
-    publishedOpen = false;
-    lastPublishMs = 0;
-    lastRetryMs = 0;
-    retryWait = false;
-    haCloudError = false;
-    cloudReedKnown = false;
-    cloudReedOpen = false;
+    contactOpen = false;
+    alarm = false;
+    contactOpenAt = 0;
+    reported = false;
+    reportedAlarm = false;
+    lastReportAt = 0;
+    lastAttemptAt = 0;
+    backingOff = false;
+    haFailed = false;
+    cloudAlarmKnown = false;
+    cloudAlarm = false;
 
     pinMode(LED_PIN, OUTPUT);
-    pinMode(REED_PIN, INPUT_PULLUP);
+    pinMode(CONTACT_PIN, INPUT_PULLUP);
 
 #ifdef SEWER_TRANSPORT_HTTP
     httpRequest.hostname = HA_HOST;
@@ -253,32 +244,38 @@ void setup() {
 
 void loop() {
     Watchdog.refresh();
-    ensureTransport();
+#ifdef SEWER_TRANSPORT_MQTT
+    if (mqtt.isConnected()) {
+        mqtt.loop();
+    } else {
+        mqttConnect();
+    }
+#endif
 
-    rawOpen = (digitalRead(REED_PIN) == HIGH);
+    contactOpen = (digitalRead(CONTACT_PIN) == HIGH);
 
-    if (rawOpen) {
+    if (contactOpen) {
         digitalWrite(LED_PIN, ((millis() / 100) % 2) ? HIGH : LOW);
-        if (!stableOpen) {
-            if (openSince == 0) {
-                openSince = millis();
-                Log.info("reed opening");
-            } else if ((millis() - openSince) >= OPEN_DEBOUNCE_MS) {
-                stableOpen = true;
-                Log.info("reed open");
-                publishReed(true);
+        if (!alarm) {
+            if (contactOpenAt == 0) {
+                contactOpenAt = millis();
+                Log.info("contact open");
+            } else if ((millis() - contactOpenAt) >= ALARM_DEBOUNCE_MS) {
+                alarm = true;
+                Log.info("ALARM");
+                report(true);
             }
         }
     } else {
         digitalWrite(LED_PIN, LOW);
-        openSince = 0;
-        if (stableOpen) {
-            stableOpen = false;
-            Log.info("reed closed");
-            publishReed(true);
+        contactOpenAt = 0;
+        if (alarm) {
+            alarm = false;
+            Log.info("OK");
+            report(true);
         }
     }
 
-    publishReed(false);
+    report(false);
     delay(20);
 }

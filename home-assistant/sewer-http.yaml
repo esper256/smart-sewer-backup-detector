@@ -10,8 +10,8 @@
 # phone notify service.
 
 input_text:
-  sewer_reed:
-    name: Sewer reed
+  sewer_state:
+    name: Sewer state
     max: 16
 
 input_datetime:
@@ -25,7 +25,7 @@ template:
       - name: Sewer cleanout float
         unique_id: sewer_cleanout_float
         device_class: moisture
-        state: "{{ states('input_text.sewer_reed') == 'OPEN' }}"
+        state: "{{ states('input_text.sewer_state') == 'ALARM' }}"
       - name: Sewer detector stale
         unique_id: sewer_detector_stale
         state: >-
@@ -45,9 +45,9 @@ automation:
     action:
       - service: input_text.set_value
         target:
-          entity_id: input_text.sewer_reed
+          entity_id: input_text.sewer_state
         data:
-          value: "{{ trigger.json.reed }}"
+          value: "{{ trigger.json.state }}"
       - service: input_datetime.set_datetime
         target:
           entity_id: input_datetime.sewer_detector_last_ok

@@ -11,9 +11,9 @@ mqtt:
   binary_sensor:
     - name: Sewer cleanout float
       unique_id: sewer_cleanout_float
-      state_topic: sewer/reed
-      payload_on: OPEN
-      payload_off: CLOSED
+      state_topic: sewer/state
+      payload_on: ALARM
+      payload_off: OK
       device_class: moisture
       expire_after: 180
       availability:
