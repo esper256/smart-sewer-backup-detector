@@ -70,6 +70,8 @@ public:
 
     const char* c_str() const { return s_.c_str(); }
 
+    String operator+(const String& other) const { return String(s_ + other.s_); }
+
     static String format(const char* fmt, ...) {
         char buf[256];
         va_list ap;

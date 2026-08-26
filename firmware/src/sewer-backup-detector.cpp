@@ -1,10 +1,8 @@
 // Particle Photon 2 — sewer backup detector
-// Device OS 5.3+. Edit config_and_secrets.h. Add the HttpClient library
-// (or the MQTT library if you switch transport).
+// Device OS 5.3+. Edit config_and_secrets.h.
 //
-// Wiring: dry contact between D2 and GND (INPUT_PULLUP). Debug LED on D7.
-// Closed contact (dry pipe) => D2 LOW  => OK.
-// Open contact (backup, or a cut wire) => D2 HIGH => ALARM.
+// Dry contact D2–GND, INPUT_PULLUP. Debug LED on D7.
+// Closed (dry) => LOW => OK. Open (backup or cut wire) => HIGH => ALARM.
 
 #include "Particle.h"
 #include "config_and_secrets.h"
@@ -17,35 +15,29 @@
 #endif
 
 SYSTEM_THREAD(ENABLED);
-
 SerialLogHandler logHandler(LOG_LEVEL_INFO);
 
 const pin_t CONTACT_PIN = D2;
 const pin_t LED_PIN = D7;
-
 const unsigned long ALARM_DEBOUNCE_MS = 2000;
 const unsigned long HEARTBEAT_MS = 60000;
 const unsigned long RETRY_MS = 5000;
 
-const char* STATE_ALARM = "ALARM";
-const char* STATE_OK = "OK";
-
-bool contactOpen = false;
-bool alarm = false;
-unsigned long contactOpenAt = 0;
-
-bool reported = false;
-bool reportedAlarm = false;
-unsigned long lastReportAt = 0;
-unsigned long lastAttemptAt = 0;
-bool backingOff = false;
-bool haFailed = false;
-bool cloudAlarmKnown = false;
-bool cloudAlarm = false;
+struct {
+    bool alarm;
+    unsigned long openedAt;
+    bool haSent;
+    bool haAlarm;
+    unsigned long haSentAt;
+    bool backingOff;
+    unsigned long backoffAt;
+    bool particleHaDown;
+    bool particleHasAlarm;
+    bool particleAlarm;
+} g;
 
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
-
 HttpClient http;
 http_header_t httpHeaders[] = {
     { "Content-Type", "application/json" },
@@ -60,70 +52,25 @@ const int MQTT_KEEPALIVE_S = 60;
 const int MQTT_BUFFER_SIZE = 256;
 const char* TOPIC_AVAILABILITY = "sewer/availability";
 const char* TOPIC_STATE = "sewer/state";
-
 void mqttCallback(char*, uint8_t*, unsigned int) {}
-
 MQTT mqtt(MQTT_BROKER_IP, MQTT_BROKER_PORT, MQTT_BUFFER_SIZE, MQTT_KEEPALIVE_S, mqttCallback);
 #endif
 
-const char* stateText() {
-    return alarm ? STATE_ALARM : STATE_OK;
+bool elapsed(unsigned long start, unsigned long ms) {
+    return millis() - start >= ms;
 }
 
-bool publishCloud(const char* event, const char* data) {
-    if (!Particle.connected()) {
-        return false;
-    }
-    return Particle.publish(event, data, PRIVATE);
-}
-
-void publishCloudAlarm() {
-    if (cloudAlarmKnown && cloudAlarm == alarm) {
-        return;
-    }
-    if (!publishCloud("sewer-alarm", stateText())) {
-        return;
-    }
-    cloudAlarmKnown = true;
-    cloudAlarm = alarm;
-}
-
-void publishCloudHa(bool delivered) {
-    if (delivered) {
-        if (haFailed) {
-            publishCloud("sewer-ha", "ok");
-            haFailed = false;
-        }
-        return;
-    }
-    if (haFailed) {
-        return;
-    }
-#ifdef SEWER_TRANSPORT_HTTP
-    if (!WiFi.ready()) {
-        return;
-    }
-    String detail = String::format("HTTP %d", httpResponse.status);
-    if (!publishCloud("sewer-ha", detail.c_str())) {
-        return;
-    }
-#endif
-#ifdef SEWER_TRANSPORT_MQTT
-    if (!publishCloud("sewer-ha", "mqtt")) {
-        return;
-    }
-#endif
-    haFailed = true;
+bool sendToParticleCloud(const char* event, const char* data) {
+    return Particle.connected() && Particle.publish(event, data, PRIVATE);
 }
 
 #ifdef SEWER_TRANSPORT_HTTP
-bool deliver() {
+bool sendToHomeAssistant(const char* state) {
     if (!WiFi.ready()) {
         Log.warn("Wi-Fi not ready");
         return false;
     }
-
-    httpRequest.body = String::format("{\"state\":\"%s\"}", stateText());
+    httpRequest.body = String::format("{\"state\":\"%s\"}", state);
     http.post(httpRequest, httpResponse, httpHeaders);
     if (httpResponse.status != 200) {
         Log.warn("HTTP %d", httpResponse.status);
@@ -134,98 +81,68 @@ bool deliver() {
 #endif
 
 #ifdef SEWER_TRANSPORT_MQTT
-void mqttConnect() {
-    if (!WiFi.ready()) {
-        return;
-    }
-    if (backingOff && (millis() - lastAttemptAt) < RETRY_MS) {
-        return;
-    }
-    lastAttemptAt = millis();
-    backingOff = true;
-
-    String clientId = String("sewer-") + System.deviceID();
-    const bool ok = mqtt.connect(
-        clientId.c_str(),
-        MQTT_USERNAME,
-        MQTT_PASSWORD,
-        TOPIC_AVAILABILITY,
-        MQTT::QOS1,
-        1,
-        "offline",
-        true
-    );
-    if (!ok) {
-        Log.warn("mqtt connect failed");
-        return;
-    }
-
-    mqtt.publish(TOPIC_AVAILABILITY, "online", true);
-    reported = false;
-    lastAttemptAt = 0;
-    backingOff = false;
-    Log.info("mqtt connected");
-}
-
-bool deliver() {
+bool sendToHomeAssistant(const char* state) {
     if (!mqtt.isConnected()) {
         return false;
     }
-    if (!mqtt.publish(TOPIC_STATE, stateText(), true)) {
+    if (!mqtt.publish(TOPIC_STATE, state, true)) {
         Log.warn("mqtt publish failed");
         return false;
     }
     return true;
 }
+
+void connectToMqtt() {
+    if (!WiFi.ready()) {
+        return;
+    }
+    if (g.backingOff && !elapsed(g.backoffAt, RETRY_MS)) {
+        return;
+    }
+    g.backingOff = true;
+    g.backoffAt = millis();
+
+    String clientId = String("sewer-") + System.deviceID();
+    if (!mqtt.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD,
+                      TOPIC_AVAILABILITY, MQTT::QOS1, 1, "offline", true)) {
+        Log.warn("mqtt connect failed");
+        return;
+    }
+    mqtt.publish(TOPIC_AVAILABILITY, "online", true);
+    g.haSent = false;
+    g.backingOff = false;
+    Log.info("mqtt connected");
+}
 #endif
 
-void report(bool immediate) {
-    const bool changed = !reported || reportedAlarm != alarm;
-    const bool heartbeatDue = reported &&
-        ((millis() - lastReportAt) >= HEARTBEAT_MS);
+void readContact() {
+    const bool open = digitalRead(CONTACT_PIN) == HIGH;
+    digitalWrite(LED_PIN, (open && ((millis() / 100) % 2)) ? HIGH : LOW);
 
-    if (changed) {
-        publishCloudAlarm();
-    }
-
-    if (!immediate && !changed && !heartbeatDue) {
+    if (!open) {
+        g.openedAt = 0;
+        if (g.alarm) {
+            g.alarm = false;
+            Log.info("OK");
+        }
         return;
     }
-    if (backingOff && (millis() - lastAttemptAt) < RETRY_MS) {
+    if (g.alarm) {
         return;
     }
-
-    if (!deliver()) {
-        lastAttemptAt = millis();
-        backingOff = true;
-        publishCloudHa(false);
+    if (g.openedAt == 0) {
+        g.openedAt = millis();
+        Log.info("contact open");
         return;
     }
-
-    publishCloudHa(true);
-    reported = true;
-    reportedAlarm = alarm;
-    lastReportAt = millis();
-    lastAttemptAt = 0;
-    backingOff = false;
-    if (changed) {
-        Log.info("%s", stateText());
+    if (elapsed(g.openedAt, ALARM_DEBOUNCE_MS)) {
+        g.alarm = true;
+        Log.info("ALARM");
     }
 }
 
 void setup() {
-    contactOpen = false;
-    alarm = false;
-    contactOpenAt = 0;
-    reported = false;
-    reportedAlarm = false;
-    lastReportAt = 0;
-    lastAttemptAt = 0;
-    backingOff = false;
-    haFailed = false;
-    cloudAlarmKnown = false;
-    cloudAlarm = false;
-
+    g = {};
     pinMode(LED_PIN, OUTPUT);
     pinMode(CONTACT_PIN, INPUT_PULLUP);
 
@@ -238,7 +155,6 @@ void setup() {
 
     Watchdog.init(WatchdogConfiguration().timeout(90s));
     Watchdog.start();
-
     Log.info("setup complete");
 }
 
@@ -248,34 +164,48 @@ void loop() {
     if (mqtt.isConnected()) {
         mqtt.loop();
     } else {
-        mqttConnect();
+        connectToMqtt();
     }
 #endif
 
-    contactOpen = (digitalRead(CONTACT_PIN) == HIGH);
+    readContact();
+    const char* state = g.alarm ? "ALARM" : "OK";
 
-    if (contactOpen) {
-        digitalWrite(LED_PIN, ((millis() / 100) % 2) ? HIGH : LOW);
-        if (!alarm) {
-            if (contactOpenAt == 0) {
-                contactOpenAt = millis();
-                Log.info("contact open");
-            } else if ((millis() - contactOpenAt) >= ALARM_DEBOUNCE_MS) {
-                alarm = true;
-                Log.info("ALARM");
-                report(true);
-            }
-        }
-    } else {
-        digitalWrite(LED_PIN, LOW);
-        contactOpenAt = 0;
-        if (alarm) {
-            alarm = false;
-            Log.info("OK");
-            report(true);
+    if (!g.particleHasAlarm || g.particleAlarm != g.alarm) {
+        if (sendToParticleCloud("sewer-alarm", state)) {
+            g.particleHasAlarm = true;
+            g.particleAlarm = g.alarm;
         }
     }
 
-    report(false);
+    const bool haDue = !g.haSent || g.haAlarm != g.alarm ||
+        (g.haSent && elapsed(g.haSentAt, HEARTBEAT_MS));
+    if (haDue && (!g.backingOff || elapsed(g.backoffAt, RETRY_MS))) {
+        if (sendToHomeAssistant(state)) {
+            if (g.particleHaDown) {
+                sendToParticleCloud("sewer-ha", "ok");
+                g.particleHaDown = false;
+            }
+            g.haSent = true;
+            g.haAlarm = g.alarm;
+            g.haSentAt = millis();
+            g.backingOff = false;
+        } else {
+            g.backingOff = true;
+            g.backoffAt = millis();
+            if (!g.particleHaDown) {
+#ifdef SEWER_TRANSPORT_HTTP
+                if (WiFi.ready()) {
+                    String err = String::format("HTTP %d", httpResponse.status);
+                    g.particleHaDown = sendToParticleCloud("sewer-ha", err.c_str());
+                }
+#endif
+#ifdef SEWER_TRANSPORT_MQTT
+                g.particleHaDown = sendToParticleCloud("sewer-ha", "mqtt");
+#endif
+            }
+        }
+    }
+
     delay(20);
 }
