@@ -1,6 +1,6 @@
 // Particle Photon 2 — sewer backup detector
-// Device OS 5.3+. Copy secrets.example.h to secrets.h and pick MQTT or HTTP.
-// MQTT: add the MQTT library (hirotakaster). HTTP: add HttpClient.
+// Device OS 5.3+. Copy config_and_secrets.example.h to config_and_secrets.h.
+// HTTP (default): add HttpClient. MQTT (optional): add the MQTT library (hirotakaster).
 //
 // Wiring: reed between D2 and GND (INPUT_PULLUP). Debug LED on D7.
 // Dry pipe (float down, reed closed) => D2 LOW.
@@ -10,13 +10,13 @@
 // The Photon reports reed state on the LAN. Home Assistant sends the alerts.
 
 #include "Particle.h"
-#include "secrets.h"
+#include "config_and_secrets.h"
 
-#ifdef SEWER_TRANSPORT_MQTT
-#include "MQTT.h"
-#endif
 #ifdef SEWER_TRANSPORT_HTTP
 #include "HttpClient.h"
+#endif
+#ifdef SEWER_TRANSPORT_MQTT
+#include "MQTT.h"
 #endif
 
 SYSTEM_THREAD(ENABLED);
@@ -42,17 +42,6 @@ bool publishedOpen = false;
 unsigned long lastPublishMs = 0;
 unsigned long lastRetryMs = 0;
 
-#ifdef SEWER_TRANSPORT_MQTT
-const int MQTT_KEEPALIVE_S = 60;
-const int MQTT_BUFFER_SIZE = 256;
-const char* TOPIC_AVAILABILITY = "sewer/availability";
-const char* TOPIC_REED = "sewer/reed";
-
-void mqttCallback(char*, uint8_t*, unsigned int) {}
-
-MQTT mqtt(MQTT_BROKER_IP, MQTT_BROKER_PORT, MQTT_BUFFER_SIZE, MQTT_KEEPALIVE_S, mqttCallback);
-#endif
-
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
 
@@ -65,9 +54,37 @@ http_request_t httpRequest;
 http_response_t httpResponse;
 #endif
 
+#ifdef SEWER_TRANSPORT_MQTT
+const int MQTT_KEEPALIVE_S = 60;
+const int MQTT_BUFFER_SIZE = 256;
+const char* TOPIC_AVAILABILITY = "sewer/availability";
+const char* TOPIC_REED = "sewer/reed";
+
+void mqttCallback(char*, uint8_t*, unsigned int) {}
+
+MQTT mqtt(MQTT_BROKER_IP, MQTT_BROKER_PORT, MQTT_BUFFER_SIZE, MQTT_KEEPALIVE_S, mqttCallback);
+#endif
+
 const char* reedPayload() {
     return stableOpen ? PAYLOAD_OPEN : PAYLOAD_CLOSED;
 }
+
+#ifdef SEWER_TRANSPORT_HTTP
+void ensureTransport() {
+}
+
+bool sendReed() {
+    if (!WiFi.ready()) {
+        Log.warn("Wi-Fi not ready");
+        return false;
+    }
+
+    httpRequest.body = String::format("{\"reed\":\"%s\"}", reedPayload());
+    http.post(httpRequest, httpResponse, httpHeaders);
+    Log.info("HTTP %d", httpResponse.status);
+    return httpResponse.status == 200;
+}
+#endif
 
 #ifdef SEWER_TRANSPORT_MQTT
 void ensureTransport() {
@@ -115,23 +132,6 @@ bool sendReed() {
         return false;
     }
     return true;
-}
-#endif
-
-#ifdef SEWER_TRANSPORT_HTTP
-void ensureTransport() {
-}
-
-bool sendReed() {
-    if (!WiFi.ready()) {
-        Log.warn("Wi-Fi not ready");
-        return false;
-    }
-
-    httpRequest.body = String::format("{\"reed\":\"%s\"}", reedPayload());
-    http.post(httpRequest, httpResponse, httpHeaders);
-    Log.info("HTTP %d", httpResponse.status);
-    return httpResponse.status == 200;
 }
 #endif
 

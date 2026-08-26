@@ -1,4 +1,6 @@
-# MQTT package. Requires Mosquitto (Home Assistant add-on is enough) and the MQTT integration.
+# Optional MQTT package if you already run a broker. The default path is HTTP
+# (sewer-http.yaml). Requires Mosquitto (Home Assistant add-on is enough) and
+# the MQTT integration.
 #
 # configuration.yaml:
 #   homeassistant:

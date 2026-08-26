@@ -18,17 +18,15 @@ A magnetic float switch is mounted through a cleanout cap that has been drilled 
 
 Those alerts only arrive if Home Assistant can still reach your phone. It is advisable to set up a recurring notification simply to test that notifications, in general, are being delivered.
 
-The Photon can talk to Home Assistant in two ways. Pick one in `secrets.h`.
+The Photon talks to Home Assistant with an HTTP POST on the LAN, on port 8123, the same port as the HA web interface. Nothing else to install. That is the path this project uses.
 
-**HTTP.** The Photon sends an HTTP POST to Home Assistant on port 8123, the same port the HA web interface already uses. Nothing else to install. This is what the first version of this project used.
-
-**MQTT.** MQTT is a small publish/subscribe protocol. A *broker* is a program that accepts messages and hands them to subscribers. [Mosquitto](https://mosquitto.org/) is one such broker. Home Assistant is not Mosquitto; HA can *use* a broker. On Home Assistant OS you typically install Mosquitto as an add-on, so it runs on the same computer as HA, not on a second machine. It is still an extra program. MQTT gives Home Assistant a native sensor with last-will disconnect detection. HTTP needs a webhook and a timestamp helper to notice silence.
+MQTT is optional if you already run a broker. MQTT is a publish/subscribe protocol. A *broker* is a program that accepts messages and hands them to subscribers. [Mosquitto](https://mosquitto.org/) is one such broker. Home Assistant is not Mosquitto; HA can *use* a broker. On Home Assistant OS, Mosquitto is typically an add-on on the same computer. MQTT gives HA a native sensor and last-will disconnect detection. HTTP notices silence with a webhook timestamp. Pick the transport in `config_and_secrets.h`.
 
 ```mermaid
 flowchart LR
   lateral[Sewer lateral] -->|level rises| float[Float switch]
   float --> photon[Photon 2]
-  photon -->|HTTP or MQTT| ha[Home Assistant]
+  photon -->|HTTP POST| ha[Home Assistant]
   ha --> phone[Phone]
 ```
 
@@ -55,7 +53,7 @@ Tools: drill and a bit matching the float gland, wire strippers, soldering iron,
 - A sewer cleanout you can open, and a new matching cap you are allowed to modify.
 - Ability to work around sewage and sewer gas.
 - Wi-Fi that reaches the cleanout, and the ability to flash a Particle board.
-- Home Assistant on the LAN. For MQTT, also a broker (the Mosquitto add-on on the same HA machine is enough). For HTTP, HA alone is enough.
+- Home Assistant on the LAN. MQTT is optional and needs a broker (the Mosquitto add-on on the same HA machine is enough).
 - A disconnect at the cap so you can unscrew it and snake the line. The sensor wires should not tether the cap to the electronics box.
 
 ## Build
@@ -67,9 +65,9 @@ Tools: drill and a bit matching the float gland, wire strippers, soldering iron,
 
    ![Photon 2 in the IP68 box with U.FL pigtail and sensor wires](images/finished_electronics_box_closeup.jpg)
 
-5. Copy [`firmware/secrets.example.h`](firmware/secrets.example.h) to `firmware/secrets.h`. Leave `#define SEWER_TRANSPORT_MQTT` or switch to `#define SEWER_TRANSPORT_HTTP`. Fill in the matching credentials. `secrets.h` is gitignored.
-6. **MQTT:** install the Mosquitto add-on (or another broker on the LAN), create a user, and point Home Assistant’s MQTT integration at it. Do not expose port 1883. Install [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml) as a package. **HTTP:** create the webhook in [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) (or the UI) and put that id in `HA_WEBHOOK_PATH`. No broker. Replace `notify.notify` with your phone notify service in whichever package you use.
-7. Flash Device OS 5.3 or later. In Particle Web IDE: new app, add the `.ino` and `secrets.h`. Add the **MQTT** library (hirotakaster) for MQTT, or **HttpClient** for HTTP. Flash OTA. Particle Cloud is used for OTA. Reed state stays on the LAN.
+5. Copy [`firmware/config_and_secrets.example.h`](firmware/config_and_secrets.example.h) to `firmware/config_and_secrets.h`. The default is HTTP: set `HA_HOST` and `HA_WEBHOOK_PATH`. `config_and_secrets.h` is gitignored.
+6. Install [`home-assistant/sewer-http.yaml`](home-assistant/sewer-http.yaml) as a package. Put the webhook id in `HA_WEBHOOK_PATH` (`/api/webhook/<id>`). Keep the webhook local-only. Replace `notify.notify` with your phone notify service. If you would rather use MQTT, see Firmware below and [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml).
+7. Flash Device OS 5.3 or later. In Particle Web IDE: new app, add the `.ino` and `config_and_secrets.h`, add the **HttpClient** library, flash OTA. Particle Cloud is used for OTA. Reed state stays on the LAN.
 8. Join the float leads with WAGO 221 connectors or a weatherproof disconnect so you can unplug and unscrew the cap. WAGOs are fine under a roof overhang. They are not rated as an outdoor weatherproof connector.
 9. Test by lifting the float for more than 2 seconds. `binary_sensor.sewer_cleanout_float` should go on and the backup notification should fire. Unplug the Photon; within a few minutes the silent-detector notification should fire. Periodic reports do not prove the float still moves. Lift it occasionally.
 
@@ -83,11 +81,20 @@ LED  ──── GND  (series resistor unless the LED is a module)
 
 ## Firmware
 
-[`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino) and [`firmware/secrets.example.h`](firmware/secrets.example.h).
+[`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino) and [`firmware/config_and_secrets.example.h`](firmware/config_and_secrets.example.h).
 
-The Photon reports `OPEN` or `CLOSED` 2 s after the reed opens, immediately on close, and every 60 s either way. The 2 s delay is reed debounce.
+The Photon reports `OPEN` or `CLOSED` 2 s after the reed opens, immediately on close, and every 60 s either way. The 2 s delay is reed debounce. After a failed send it retries every 5 s. The hardware watchdog is 90 s.
 
-**MQTT** (default in `secrets.example.h`):
+**HTTP** (default): POST `{"reed":"OPEN"}` or `{"reed":"CLOSED"}` to `/api/webhook/<id>` on Home Assistant port 8123. Set `request.timeout`. Stock HttpClient uses the hostname field even for an IP address; put a dotted-quad in `HA_HOST`. There is no last-will; Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
+
+```cpp
+#define SEWER_TRANSPORT_HTTP
+const char* HA_HOST = "192.168.0.2";
+const int HA_PORT = 8123;
+const char* HA_WEBHOOK_PATH = "/api/webhook/replacemewithyourwebhookid";
+```
+
+**MQTT** (optional): uncomment `SEWER_TRANSPORT_MQTT` instead, add the MQTT library, and use [`home-assistant/sewer-mqtt.yaml`](home-assistant/sewer-mqtt.yaml). Install a broker, create a user, and do not expose port 1883.
 
 | Topic | Payload | When |
 |---|---|---|
@@ -95,13 +102,9 @@ The Photon reports `OPEN` or `CLOSED` 2 s after the reed opens, immediately on c
 | `sewer/availability` (retain) | `online` | MQTT connect |
 | `sewer/availability` (LWT) | `offline` | Unclean disconnect |
 
-Keepalive is 60 s. The library default is 15 s, which is short enough that Mosquitto will drop the client. `mqtt.loop()` runs every pass.
+Keepalive is 60 s. The library default is 15 s, which is short enough that Mosquitto will drop the client.
 
-**HTTP:** POST `{"reed":"OPEN"}` or `{"reed":"CLOSED"}` to `/api/webhook/<id>` on Home Assistant port 8123. Set `request.timeout`. Stock HttpClient uses the hostname field even for an IP address; put a dotted-quad in `HA_HOST`. HTTP has no last-will; Home Assistant treats the detector as silent if the webhook timestamp is older than 5 minutes.
-
-The hardware watchdog is 90 s. After a failed send, the firmware retries every 5 s.
-
-Credentials belong in `secrets.h` only. MQTT and HTTP on the LAN are unencrypted. Do not send them across the internet.
+LAN HTTP and MQTT are unencrypted. Do not send them across the internet.
 
 ## Failure modes
 
@@ -110,7 +113,7 @@ Credentials belong in `secrets.h` only. MQTT and HTTP on the LAN are unencrypted
 | Float jammed with debris | Stays `CLOSED` | Inspect after every trip. Lift-test on a schedule. |
 | Float hanging into the lateral | Catches debris and can clog the line | Size the stem as in Build step 1. |
 | Cut sensor wire | Reports `OPEN` | Same signal as a real backup. Distinguishing the two needs a different circuit. |
-| Power, Wi-Fi, or Photon down | MQTT last-will and/or HA timeout | Silent-detector alert after a few minutes. |
+| Power, Wi-Fi, or Photon down | No webhook for 5 min (HTTP) or MQTT last-will | Silent-detector alert. |
 | Home Assistant or phone notifications down | No remote alert | Recurring notification test, as in How it works. |
 | HTTP or MQTT call hangs | Loop stops | Hardware watchdog resets after 90 s. |
 
