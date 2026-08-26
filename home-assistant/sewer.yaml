@@ -1,0 +1,80 @@
+# Home Assistant package. Requires the MQTT integration (Mosquitto add-on on the LAN).
+#
+# configuration.yaml:
+#   homeassistant:
+#     packages:
+#       sewer: !include sewer.yaml
+#
+# Replace notify.notify with your mobile notify service.
+
+input_button:
+  test_ha_notifications:
+    name: Test HA notifications
+    icon: mdi:bell-check
+
+mqtt:
+  binary_sensor:
+    - name: Sewer cleanout float
+      unique_id: sewer_cleanout_float
+      state_topic: sewer/reed
+      payload_on: OPEN
+      payload_off: CLOSED
+      device_class: moisture
+      expire_after: 180
+      availability:
+        - topic: sewer/availability
+          payload_available: online
+          payload_not_available: offline
+
+automation:
+  - id: sewer_backup_alarm
+    alias: Sewer backup
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.sewer_cleanout_float
+        to: "on"
+    action:
+      - service: notify.notify
+        data:
+          title: Sewer backup
+          message: Float is up. Stop draining water.
+
+  - id: sewer_detector_silent
+    alias: Sewer detector silent
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.sewer_cleanout_float
+        to:
+          - unavailable
+          - unknown
+        for:
+          minutes: 5
+    action:
+      - service: notify.notify
+        data:
+          title: Sewer detector silent
+          message: No timely MQTT updates. Check power, Wi-Fi, Mosquitto, and the Photon.
+
+  - id: test_ha_notifications
+    alias: Test HA notifications
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_button.test_ha_notifications
+      - platform: time
+        at: "09:00:00"
+    condition:
+      - condition: or
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.platform == 'state' }}"
+          - condition: time
+            weekday:
+              - sun
+    action:
+      - service: notify.notify
+        data:
+          title: HA notification test
+          message: If you got this, phone alerts work. The sewer detector is a separate path.

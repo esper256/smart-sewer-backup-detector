@@ -1,6 +1,6 @@
 # Sewer Backup Detector
 
-A Particle Photon 2 plus a reed float in a sewer cleanout cap. When wastewater starts climbing the cleanout, Home Assistant gets an HTTP POST. You stop draining water before the house plumbing fills.
+A Particle Photon 2 plus a reed float in a sewer cleanout cap. The Photon publishes reed state over LAN MQTT. Home Assistant alerts you when the float is up, when the device goes silent, and — separately — that phone notifications still work.
 
 Built July 2025. Hardware ≈ $50–$75. Firmware: [`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino).
 
@@ -12,17 +12,24 @@ A clogged lateral fills from the low point up. Toilets and showers then dump int
 
 Put the float as low in the cleanout riser as the stem and pipe geometry allow. Earlier trip ⇒ more time to stop using water ⇒ less head at the cap when you open it.
 
-This is a warning, not a pump. Warning time is whatever unused pipe volume sits between the float and your lowest fixture, divided by the household drain rate.
+This is a warning, not a pump. Warning time is unused pipe volume between the float and your lowest fixture, divided by the household drain rate.
 
 ```mermaid
 flowchart LR
   lateral[Sewer lateral] -->|level rises| float[Float / reed]
   float --> photon[Photon 2]
-  photon -->|LAN HTTP POST| ha[Home Assistant]
+  photon -->|LAN MQTT| broker[Mosquitto]
+  broker --> ha[Home Assistant]
   ha --> phone[Phone]
 ```
 
-A float switch is the right sensor: the question is binary (is this normally empty pipe now wet?) and the stem length sets the trip height. Conductivity probes, ultrasonics, and pressure sensors add failure modes without answering a better question.
+A float switch is the right sensor: the question is binary (is this normally empty pipe now wet?) and the stem length sets the trip height.
+
+The Photon is a sensor, not an alarm panel. It publishes `OPEN` / `CLOSED` on change (2 s debounce to `OPEN`) and every 60 s otherwise. HA owns the three alerts:
+
+1. Float is up → stop draining.
+2. No timely MQTT traffic → the detector is dead.
+3. A notification test that does not involve the Photon, so you can tell “HA/phone is broken” from “the sewer sensor is broken.”
 
 ## Cost, parts, skills
 
@@ -35,6 +42,7 @@ A float switch is the right sensor: the question is binary (is this normally emp
 | Antenna | Dual-band paddle + U.FL pigtail, Amazon `B07R21LN5P` | $5–10 |
 | Connectors | WAGO 221 at the cap (so the cap still unscrews) | $1–3 |
 | Headers / terminals | Soldered onto the Photon or a small proto board | $2–5 |
+| Debug LED | On D7 (soldered on this build) | <$1 |
 | Wire | 2-conductor from float to box | <$2 |
 | Power | USB 5 V wall wart into the Photon’s USB jack | $5–10 |
 | **Total** | | **$50–$75** |
@@ -46,7 +54,7 @@ Tools: drill and bit sized to the float’s gland, wire strippers, soldering iro
 - Access a sewer cleanout and legally modify its cap.
 - Work around sewage and sewer gas without turning it into a hazard for the house.
 - Flash a Particle board and keep it on Wi-Fi that actually reaches the cleanout.
-- Already run Home Assistant (or another HTTP endpoint on the LAN). This project does not include “also learn home automation from scratch.”
+- Already run Home Assistant **and** an MQTT broker on the LAN (Mosquitto add-on is enough). This project does not include “also learn home automation from scratch.”
 - Leave the cleanout serviceable: the cap must still come off in a backup. Permanent wiring through the cap is a failure.
 
 If the cleanout is unsheltered, WAGO 221s are the wrong outdoor connector. Mine sit under a house overhang.
@@ -55,68 +63,68 @@ If the cleanout is unsheltered, WAGO 221s are the wrong outdoor connector. Mine 
 
 1. Measure the cleanout riser (ID and depth). Buy a float whose stem hangs the float low without scraping the wall or blocking a snake.
 2. Drill the replacement cap on center. Mount the float with its gaskets so the cap still seals.
-3. Wire the reed **D2–GND**. Photon pin D2 is `INPUT_PULLUP`. Closed reed (dry) = LOW; open reed (float up, or cut wire) = HIGH.
+3. Wire the reed **D2–GND**. D2 is `INPUT_PULLUP`. Closed reed (dry) = LOW; open reed (float up, or cut wire) = HIGH. Debug LED on **D7** (this build has one soldered); do not hold D7 low at reset (Photon 2 test mode).
 4. Put the Photon in the IP68 box. USB power through a gland. Optional: U.FL to an external antenna if the internal antenna is marginal. Fit is tight; that was the hardest mechanical step.
 
    ![Photon 2 in the IP68 box with U.FL pigtail and sensor wires](images/finished_electronics_box_closeup.jpg)
 
-5. Create two Home Assistant webhook automations ([`home-assistant/automations.yaml`](home-assistant/automations.yaml)). Copy the IDs into the firmware. Do not commit them.
-6. Flash Device OS 5.3+ firmware. In Particle Web IDE: new app, paste [`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino), add the **HttpClient** library, set `HA_HOST` and the two webhook paths, flash OTA.
-7. Join the float leads with WAGOs (or a real weatherproof disconnect) so you can unplug and unscrew the cap for snaking.
-8. Test by lifting the float for >2 s. Confirm: Photon logs the event, HA fires the alarm, phone buzzes. Then confirm the heartbeat path once. A 28-day HTTP heartbeat proves power + Wi-Fi + HA. It does **not** prove the float still moves. Lift it on a schedule.
+5. Run Mosquitto on the LAN. Create a broker user. Point HA’s MQTT integration at it. Do not expose port 1883.
+6. Copy [`firmware/secrets.example.h`](firmware/secrets.example.h) → `firmware/secrets.h`. Fill in broker IP, username, password. `secrets.h` is gitignored.
+7. Flash Device OS 5.3+. Particle Web IDE: new app, add both `.ino` and `secrets.h`, add the **MQTT** library (hirotakaster), flash OTA. Particle cloud is for OTA only; telemetry stays on the LAN.
+8. Drop [`home-assistant/sewer.yaml`](home-assistant/sewer.yaml) in as a package. Replace `notify.notify` with your phone notify service.
+9. Join the float leads with WAGOs (or a real weatherproof disconnect) so you can unplug and unscrew the cap for snaking.
+10. Test: lift the float >2 s → HA `binary_sensor.sewer_cleanout_float` goes on and the backup notify fires. Unplug the Photon → within 5 minutes the silent-detector notify fires. Press **Test HA notifications** (or wait for Sunday 09:00) → phone buzzes without touching the sewer box. Periodic MQTT publishes do **not** prove the float still moves. Lift it on a schedule.
 
 ```
 USB 5V ── Photon 2 USB
 Reed ──── D2   (INPUT_PULLUP)
 Reed ──── GND
+LED  ──── D7   (debug; soldered on this build)
+LED  ──── GND  (resistor if the LED is not a module)
 ```
 
 ## Firmware
 
-The Photon does four things:
+[`firmware/sewer-backup-detector.ino`](firmware/sewer-backup-detector.ino) plus [`firmware/secrets.example.h`](firmware/secrets.example.h).
 
-1. Debounce the reed: alarm only after **2 s** continuous open.
-2. POST the alarm webhook. Retry every **5 s** until HA returns HTTP 200, then latch until the reed closes.
-3. Also `Particle.publish` the alarm so you still have a cloud event if the LAN POST fails.
-4. POST a heartbeat webhook every **28 days** (and at boot). HA should nag you if that stops.
+| Topic | Payload | When |
+|---|---|---|
+| `sewer/reed` (retain) | `OPEN` / `CLOSED` | 2 s after the reed opens; immediately on close; every 60 s either way |
+| `sewer/availability` (retain) | `online` | MQTT connect |
+| `sewer/availability` (LWT) | `offline` | Unclean disconnect |
 
-Fill in:
+`OPEN` is debounced on the device so HA does not see reed bounce. Closed is immediate.
+
+MQTT keepalive is 60 s (the library default of 15 s will drop you). `mqtt.loop()` runs every pass. Hardware watchdog is 60 s.
+
+Secrets live only in `secrets.h`:
 
 ```cpp
-const char* HA_HOST = "192.168.0.2";
-const int HA_PORT = 8123;
-const char* HA_ALARM_PATH = "/api/webhook/YOUR_ALARM_WEBHOOK_ID";
-const char* HA_HEARTBEAT_PATH = "/api/webhook/YOUR_HEARTBEAT_WEBHOOK_ID";
+const uint8_t MQTT_BROKER_IP[] = {192, 168, 0, 2};
+const uint16_t MQTT_BROKER_PORT = 1883;
+const char* MQTT_USERNAME = "replacemewithyourusername";
+const char* MQTT_PASSWORD = "replacemewithyourpassword";
 ```
 
-HttpClient talks **HTTP**, not HTTPS. Point it at HA’s LAN IP on port 8123. Stock HttpClient always uses `request.hostname` (the `request.ip` field is dead code because `String` is never NULL), so a dotted-quad in `HA_HOST` is the working setup.
-
-Photon 2 has an RGB status LED, not a D7 user LED. `D7` in firmware is leftover GPIO; wire a real LED there if you want a local blink.
-
-Serial logs: `particle serial monitor` after USB connect. `Log.info` at 115200.
+Plain MQTT on the LAN. No TLS, no Particle Cloud webhooks, no HTTP to HA.
 
 ## Failure modes
 
 | Failure | What happens | Mitigation |
 |---|---|---|
-| Float jammed with debris | No alarm | Inspect after every trip; periodic lift test |
-| Cut sensor wire | Looks like an alarm (fail-safe) | You cannot tell “backup” from “broken wire” without a different circuit |
-| Power / Wi-Fi / HA down | No remote alert | 28-day heartbeat catches *sustained* silence, not a 2-hour outage during a clog |
-| HA unreachable during a clog | LAN POST fails; Particle Cloud event still fires if cellular/Wi-Fi cloud is up | Watch the Particle event stream as a backup |
-| HttpClient hang | Loop stops | Hardware watchdog resets after 60 s |
+| Float jammed with debris | Stays `CLOSED` | Inspect after every trip; periodic lift test |
+| Cut sensor wire | Reports `OPEN` (fail-safe) | You cannot tell “backup” from “broken wire” without a different circuit |
+| Power / Wi-Fi / Photon down | LWT `offline` and/or HA `expire_after` 180 s | Silent-detector alert after 5 min |
+| Mosquitto / HA down | No remote alert | Notification test tells you the phone path still works; it does not revive a dead broker |
+| MQTT connect hang | Loop stops | Hardware watchdog resets after 60 s |
 
 Opening a sanitary sewer can expose you to pathogens and H₂S. Keep the cap sealed. Follow local plumbing code.
 
 ## v2
 
-What I would change after running this:
-
 - Replace WAGOs with a small weatherproof disconnect at the cap.
-- Supervised loop (two resistors, analog or window-comparator) so open-wire ≠ float-up ≠ short.
+- Supervised loop (two resistors) so open-wire ≠ float-up ≠ short.
 - Local sounder that does not depend on HA.
-- MQTT to HA instead of HttpClient. HttpClient is blocking; Particle themselves do not recommend it for production. Watchdog + timeout make it tolerable, not elegant.
-- Do not hard-code webhook IDs; use a `Particle.function` or a config file you never commit.
-- `millis()` wraps at ~49.7 days. The 28-day heartbeat still fires, but the first post-wrap interval can be skewed. Use `System.millis()` / a RTC if you care.
-- Keep OTA: that is why the Photon 2 is here. Once the box is outside, you will not want to open it to change debounce times.
+- MQTT TLS if the broker is not on a trusted LAN segment.
 
 License: MIT. This is an early-warning gadget, not a life-safety system.
