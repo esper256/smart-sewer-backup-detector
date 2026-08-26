@@ -1,0 +1,32 @@
+# Optional. Helpers and template sensors only, if you already use packages.
+# Create the webhook trigger in the Home Assistant UI so HA assigns the id.
+# Paste the notify automations from the README. Do not copy this file onto
+# HAOS unless you already manage configuration.yaml that way.
+#
+# configuration.yaml:
+#   homeassistant:
+#     packages:
+#       sewer: !include sewer-http.yaml
+
+input_text:
+  sewer_state:
+    name: Sewer state
+    max: 16
+
+input_datetime:
+  sewer_detector_last_ok:
+    name: Sewer detector last ok
+    has_date: true
+    has_time: true
+
+template:
+  - binary_sensor:
+      - name: Sewer cleanout float
+        unique_id: sewer_cleanout_float
+        device_class: moisture
+        state: "{{ states('input_text.sewer_state') == 'ON' }}"
+      - name: Sewer detector stale
+        unique_id: sewer_detector_stale
+        state: >-
+          {{ states('input_datetime.sewer_detector_last_ok') in ['unknown', 'unavailable', '']
+             or (now() - states('input_datetime.sewer_detector_last_ok') | as_datetime | as_local).total_seconds() > 300 }}

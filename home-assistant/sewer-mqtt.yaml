@@ -1,0 +1,53 @@
+# MQTT package. Requires Mosquitto (Home Assistant add-on is enough) and the MQTT integration.
+#
+# configuration.yaml:
+#   homeassistant:
+#     packages:
+#       sewer: !include sewer-mqtt.yaml
+#
+# Replace notify.notify with your phone notify service.
+
+mqtt:
+  binary_sensor:
+    - name: Sewer cleanout float
+      unique_id: sewer_cleanout_float
+      state_topic: sewer/state
+      payload_on: ON
+      payload_off: OFF
+      device_class: moisture
+      expire_after: 180
+      availability:
+        - topic: sewer/availability
+          payload_available: online
+          payload_not_available: offline
+
+automation:
+  - id: sewerBackup
+    alias: SewerBackup
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.sewer_cleanout_float
+        to: "on"
+    actions:
+      - action: notify.notify
+        data:
+          title: SewerBackup
+          message: Float is up. Stop draining water.
+
+  - id: sewer_detector_silent
+    alias: Sewer detector silent
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.sewer_cleanout_float
+        to:
+          - unavailable
+          - unknown
+        for:
+          minutes: 5
+    actions:
+      - action: notify.notify
+        data:
+          title: Sewer detector silent
+          message: No timely updates. Check power, Wi-Fi, Mosquitto, and the Photon.

@@ -1,0 +1,3 @@
+firmware/lib/
+*.bin
+test/firmware_test
