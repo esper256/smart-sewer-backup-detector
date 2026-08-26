@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
+#include <string>
+#include <vector>
 
 #define REQUIRE(cond)                                                          \
     do {                                                                       \
@@ -26,9 +29,25 @@ static void boot_dry() {
     loop();
 }
 
+static void go_wet() {
+    Host::pin[D2] = HIGH;
+    spin(2100);
+}
+
+static void go_dry() {
+    Host::pin[D2] = LOW;
+    loop();
+}
+
 static const Host::HttpPost& last_post() {
     REQUIRE(!Host::posts.empty());
     return Host::posts.back();
+}
+
+static bool body_is(const Host::HttpPost& post, const char* state) {
+    char expected[32];
+    std::snprintf(expected, sizeof(expected), "{\"state\":\"%s\"}", state);
+    return post.body == expected;
 }
 
 static int cloud_count(const char* event) {
@@ -50,20 +69,41 @@ static bool last_cloud_is(const char* event, const char* data) {
     return false;
 }
 
-static bool body_is(const Host::HttpPost& post, const char* state) {
-    char expected[32];
-    std::snprintf(expected, sizeof(expected), "{\"state\":\"%s\"}", state);
-    return post.body == expected;
+static std::vector<std::string> particle_states() {
+    std::vector<std::string> out;
+    for (const auto& e : Host::cloud) {
+        if (e.event == "sewer-state") {
+            out.push_back(e.data);
+        }
+    }
+    return out;
+}
+
+static void require_ha(std::initializer_list<const char*> states) {
+    REQUIRE(Host::posts.size() == states.size());
+    size_t i = 0;
+    for (const char* state : states) {
+        REQUIRE(body_is(Host::posts[i], state));
+        i++;
+    }
+}
+
+static void require_particle(std::initializer_list<const char*> states) {
+    const auto got = particle_states();
+    REQUIRE(got.size() == states.size());
+    size_t i = 0;
+    for (const char* state : states) {
+        REQUIRE(got[i] == state);
+        i++;
+    }
 }
 
 static void test_boot_posts_off() {
     boot_dry();
-    REQUIRE(Host::posts.size() == 1);
-    REQUIRE(body_is(last_post(), "OFF"));
+    require_ha({"OFF"});
     REQUIRE(last_post().port == 8123);
     REQUIRE(last_post().path == "/api/webhook/replacemewithyourwebhookid");
-    REQUIRE(cloud_count("sewer-state") == 1);
-    REQUIRE(last_cloud_is("sewer-state", "OFF"));
+    require_particle({"OFF"});
     REQUIRE(cloud_count("sewer-ha") == 0);
     std::puts("ok  boot posts OFF");
 }
@@ -72,34 +112,54 @@ static void test_short_open_stays_dry() {
     boot_dry();
     Host::pin[D2] = HIGH;
     spin(1500);
-    REQUIRE(Host::posts.size() == 1);
-    REQUIRE(body_is(last_post(), "OFF"));
-    REQUIRE(cloud_count("sewer-state") == 1);
+    require_ha({"OFF"});
+    require_particle({"OFF"});
     std::puts("ok  open < 2s stays OFF");
 }
 
 static void test_open_debounce_then_dry() {
     boot_dry();
-    Host::pin[D2] = HIGH;
-    spin(2100);
-    REQUIRE(Host::posts.size() == 2);
-    REQUIRE(body_is(last_post(), "ON"));
-
-    Host::pin[D2] = LOW;
-    loop();
-    REQUIRE(Host::posts.size() == 3);
-    REQUIRE(body_is(last_post(), "OFF"));
-    REQUIRE(cloud_count("sewer-state") == 3);
-    REQUIRE(last_cloud_is("sewer-state", "OFF"));
+    go_wet();
+    go_dry();
+    require_ha({"OFF", "ON", "OFF"});
+    require_particle({"OFF", "ON", "OFF"});
     std::puts("ok  2s open posts ON, close posts OFF");
+}
+
+static void test_three_wet_dry_cycles() {
+    boot_dry();
+    go_wet();
+    go_dry();
+    go_wet();
+    go_dry();
+    go_wet();
+    go_dry();
+    require_ha({"OFF", "ON", "OFF", "ON", "OFF", "ON", "OFF"});
+    require_particle({"OFF", "ON", "OFF", "ON", "OFF", "ON", "OFF"});
+    std::puts("ok  three wet/dry cycles");
+}
+
+static void test_debounce_restarts_after_cancel() {
+    boot_dry();
+    Host::pin[D2] = HIGH;
+    spin(1500);
+    go_dry();
+    Host::pin[D2] = HIGH;
+    spin(1500);
+    require_ha({"OFF"});
+    require_particle({"OFF"});
+
+    spin(700);
+    require_ha({"OFF", "ON"});
+    require_particle({"OFF", "ON"});
+    std::puts("ok  cancelled debounce does not count toward wet");
 }
 
 static void test_heartbeat() {
     boot_dry();
     spin(60000);
-    REQUIRE(Host::posts.size() == 2);
-    REQUIRE(body_is(last_post(), "OFF"));
-    REQUIRE(cloud_count("sewer-state") == 1);
+    require_ha({"OFF", "OFF"});
+    require_particle({"OFF"});
     REQUIRE(cloud_count("sewer-ha") == 0);
     std::puts("ok  60s heartbeat");
 }
@@ -113,7 +173,6 @@ static void test_http_retry() {
     REQUIRE(Host::posts.size() == 1);
     REQUIRE(cloud_count("sewer-ha") == 1);
     REQUIRE(last_cloud_is("sewer-ha", "HTTP 500"));
-    REQUIRE(Host::cloud.size() >= 2);
     REQUIRE(Host::cloud[0].event == "sewer-ha");
     REQUIRE(Host::cloud[1].event == "sewer-state");
 
@@ -123,12 +182,34 @@ static void test_http_retry() {
 
     Host::http_status = 200;
     spin(2000);
-    REQUIRE(Host::posts.size() == 2);
-    REQUIRE(body_is(last_post(), "OFF"));
-    REQUIRE(cloud_count("sewer-state") == 1);
+    require_ha({"OFF", "OFF"});
+    require_particle({"OFF"});
     REQUIRE(cloud_count("sewer-ha") == 2);
     REQUIRE(last_cloud_is("sewer-ha", "ok"));
     std::puts("ok  failed POST retries after 5s");
+}
+
+static void test_ha_fail_on_second_wet_then_dry() {
+    boot_dry();
+    go_wet();
+    go_dry();
+    require_ha({"OFF", "ON", "OFF"});
+
+    Host::http_status = 500;
+    go_wet();
+    REQUIRE(body_is(last_post(), "ON"));
+    REQUIRE(cloud_count("sewer-ha") == 1);
+    require_particle({"OFF", "ON", "OFF", "ON"});
+
+    Host::http_status = 200;
+    spin(5100);
+    require_ha({"OFF", "ON", "OFF", "ON", "ON"});
+    REQUIRE(last_cloud_is("sewer-ha", "ok"));
+
+    go_dry();
+    require_ha({"OFF", "ON", "OFF", "ON", "ON", "OFF"});
+    require_particle({"OFF", "ON", "OFF", "ON", "OFF"});
+    std::puts("ok  HA fail on later wet, then dry");
 }
 
 static void test_wifi_down() {
@@ -141,9 +222,8 @@ static void test_wifi_down() {
 
     Host::wifi_ready = true;
     spin(5100);
-    REQUIRE(Host::posts.size() == 1);
-    REQUIRE(body_is(last_post(), "OFF"));
-    REQUIRE(cloud_count("sewer-state") == 1);
+    require_ha({"OFF"});
+    require_particle({"OFF"});
     REQUIRE(cloud_count("sewer-ha") == 0);
     std::puts("ok  no POST until Wi-Fi is ready");
 }
@@ -152,8 +232,11 @@ int main() {
     test_boot_posts_off();
     test_short_open_stays_dry();
     test_open_debounce_then_dry();
+    test_three_wet_dry_cycles();
+    test_debounce_restarts_after_cancel();
     test_heartbeat();
     test_http_retry();
+    test_ha_fail_on_second_wet_then_dry();
     test_wifi_down();
     std::puts("all host firmware tests passed");
     return 0;

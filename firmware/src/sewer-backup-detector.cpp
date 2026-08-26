@@ -24,21 +24,21 @@ const pin_t LED_PIN = D7;
 const unsigned long WET_DEBOUNCE_MS = 2000;
 const unsigned long HEARTBEAT_MS = 60000;
 const unsigned long RETRY_MS = 5000;
+const int kUnsent = -1;
 
 // contactOpenedAt is when the pin went open (0 = closed). wet is the latched
 // moisture after WET_DEBOUNCE_MS. They disagree only during debounce.
 static bool wet;
 static unsigned long contactOpenedAt;
 
-static bool statePublishedToHomeAssistant;
-static bool lastWetPublishedToHomeAssistant;
+// 0 = dry, 1 = wet, kUnsent = nothing delivered yet.
+static int lastWetSentToHomeAssistant;
 static unsigned long lastHomeAssistantPublishAt;
 static bool backingOff;
 static unsigned long backoffStartedAt;
 
 static bool haDownPublishedToParticleCloud;
-static bool statePublishedToParticleCloud;
-static bool lastWetPublishedToParticleCloud;
+static int lastWetSentToParticleCloud;
 
 #ifdef SEWER_TRANSPORT_HTTP
 const uint16_t HTTP_TIMEOUT_MS = 4000;
@@ -109,7 +109,7 @@ void connectToMqtt() {
         return;
     }
     mqtt.publish(TOPIC_AVAILABILITY, "online", true);
-    statePublishedToHomeAssistant = false;
+    lastWetSentToHomeAssistant = kUnsent;
     backingOff = false;
     Log.info("mqtt connected");
 }
@@ -141,14 +141,12 @@ void updateWet(bool contactOpen) {
 void setup() {
     wet = false;
     contactOpenedAt = 0;
-    statePublishedToHomeAssistant = false;
-    lastWetPublishedToHomeAssistant = false;
+    lastWetSentToHomeAssistant = kUnsent;
     lastHomeAssistantPublishAt = 0;
     backingOff = false;
     backoffStartedAt = 0;
     haDownPublishedToParticleCloud = false;
-    statePublishedToParticleCloud = false;
-    lastWetPublishedToParticleCloud = false;
+    lastWetSentToParticleCloud = kUnsent;
 
     pinMode(LED_PIN, OUTPUT);
     pinMode(CONTACT_PIN, INPUT_PULLUP);
@@ -179,11 +177,11 @@ void loop() {
     digitalWrite(LED_PIN, (contactOpen && ((millis() / 100) % 2)) ? HIGH : LOW);
     updateWet(contactOpen);
 
+    const int wetInt = wet ? 1 : 0;
     const char* state = wet ? "ON" : "OFF";
 
-    const bool haDue = !statePublishedToHomeAssistant ||
-        lastWetPublishedToHomeAssistant != wet ||
-        (statePublishedToHomeAssistant &&
+    const bool haDue = lastWetSentToHomeAssistant != wetInt ||
+        (lastWetSentToHomeAssistant != kUnsent &&
          millis() - lastHomeAssistantPublishAt >= HEARTBEAT_MS);
     if (haDue && (!backingOff || millis() - backoffStartedAt >= RETRY_MS)) {
         if (sendToHomeAssistant(state)) {
@@ -191,8 +189,7 @@ void loop() {
                 sendToParticleCloud("sewer-ha", "ok");
                 haDownPublishedToParticleCloud = false;
             }
-            statePublishedToHomeAssistant = true;
-            lastWetPublishedToHomeAssistant = wet;
+            lastWetSentToHomeAssistant = wetInt;
             lastHomeAssistantPublishAt = millis();
             backingOff = false;
         } else {
@@ -214,10 +211,9 @@ void loop() {
         }
     }
 
-    if (!statePublishedToParticleCloud || lastWetPublishedToParticleCloud != wet) {
+    if (lastWetSentToParticleCloud != wetInt) {
         if (sendToParticleCloud("sewer-state", state)) {
-            statePublishedToParticleCloud = true;
-            lastWetPublishedToParticleCloud = wet;
+            lastWetSentToParticleCloud = wetInt;
         }
     }
 
