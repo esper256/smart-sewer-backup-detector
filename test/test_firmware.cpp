@@ -104,6 +104,7 @@ static void test_boot_posts_off() {
     REQUIRE(last_post().path == "/api/webhook/replacemewithyourwebhookid");
     require_particle({"OFF"});
     REQUIRE(cloud_count("sewer-ha") == 0);
+    REQUIRE(Host::antenna == ANT_EXTERNAL);
     std::puts("ok  boot posts OFF");
 }
 

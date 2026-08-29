@@ -24,12 +24,23 @@ constexpr pin_t D7 = 7;
 constexpr int LOG_LEVEL_INFO = 0;
 
 #define SYSTEM_THREAD(x)
+#define STARTUP(code)                                                          \
+    namespace {                                                                \
+    struct StartupOnce {                                                       \
+        StartupOnce() { code; }                                                \
+    } startup_once;                                                            \
+    }
+
+constexpr int ANT_INTERNAL = 0;
+constexpr int ANT_EXTERNAL = 1;
+constexpr int ANT_AUTO = 2;
 
 namespace Host {
 inline unsigned long millis_ms = 0;
 inline uint8_t pin[16] = {};
 inline bool wifi_ready = true;
 inline int http_status = 200;
+inline int antenna = ANT_INTERNAL;
 
 struct HttpPost {
     std::string host;
@@ -86,6 +97,10 @@ class IPAddress {};
 
 struct WiFiClass {
     bool ready() const { return Host::wifi_ready; }
+    int selectAntenna(int antenna) {
+        Host::antenna = antenna;
+        return 0;
+    }
 };
 [[maybe_unused]] inline WiFiClass WiFi;
 
